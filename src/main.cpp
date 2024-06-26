@@ -11,6 +11,7 @@ Optional for ESP8266: 0.96" I2C OLED and MQTT functionality
 #include <Arduino.h>
 #include "secrets.h"
 #include "THReciever.h"
+#include "THDeviceManager.h"
 
 /* Platform specific stuff */
 #if defined(ARDUINO_ARCH_ESP8266)
@@ -33,6 +34,8 @@ WiFiClient  client;
 
 THReceiver receiver = THReceiver();
 
+THDeviceManager manager = THDeviceManager();
+
 unsigned long last_sent = 0;
 
 void initWifi() {
@@ -49,6 +52,14 @@ void initWifi() {
   }
 }
 
+void initDevices() {
+  manager.add(new THDevice(0x1D, 1,"Buiten slk", 0 ));
+  manager.add(new THDevice(0x45, 1,"Garage", -1.3 ));
+  manager.add(new THDevice(0x5C, 1,"Keuken", 0 ));
+  manager.add(new THDevice(0x70, 1,"Buiten kantoor", 0 ));
+  manager.add(new THDevice(0xE5, 1,"Kelder", 0 ));
+}
+
 void printMeasurement(Measurement m) {
   Serial.print(m.deviceID, HEX);
   Serial.print(";");
@@ -61,37 +72,11 @@ void printMeasurement(Measurement m) {
   Serial.println(m.humidity, DEC);
 }
 
-void updateThingSpeak(Measurement m) {
-  // set the fields with the values
-  if (m.deviceID==0x1D) { // Buiten slaapkamer
-    ThingSpeak.setField(1, m.temperature);
-    if (!m.batteryState) {
-      ThingSpeak.setStatus("Battery Buiten slk (1D) low");
-    }
-  }
-  if (m.deviceID==0x45) { // Garage
-    ThingSpeak.setField(2, m.temperature);
-    if (!m.batteryState) {
-      ThingSpeak.setStatus("Battery Garage (45) low");
-    }
-  }
-  if (m.deviceID==0x5C) { // Keuken
-    ThingSpeak.setField(3, m.temperature);
-    if (!m.batteryState) {
-      ThingSpeak.setStatus("Battery Keuken (5C) low");
-    }
-  }
-  if (m.deviceID==0x70) { // Buiten kantoor
-    ThingSpeak.setField(4, m.temperature);
-    if (!m.batteryState) {
-      ThingSpeak.setStatus("Battery Buiten kantoor (70) low");
-    }
-  }
-  if (m.deviceID==0xE5) { // Kelder
-    ThingSpeak.setField(5, m.temperature);
-    if (!m.batteryState) {
-      ThingSpeak.setStatus("Battery Kelder (E5) low");
-    }
+void updateThingSpeak(THDevice d) {
+  Measurement m = d.getLastMeasurement();
+  ThingSpeak.setField(1, m.temperature);
+  if (!m.batteryState) {
+    ThingSpeak.setStatus("Battery " + d.getName() + " low");
   }
   
   unsigned long current = millis();
@@ -122,10 +107,18 @@ void setup() {
 
 void loop() {
   if (receiver.isAvailable()) {
-    Measurement m = receiver.getLastMeasurement();
+    Measurement measurement = receiver.getLastMeasurement();
+    printMeasurement(measurement);
 
-    printMeasurement(m);
-    updateThingSpeak(m);
+    if (manager.deviceExists(measurement.deviceID)) {
+      THDevice device = manager.getDevice(measurement.deviceID);
+
+      device.process(measurement);
+
+      if (device.hasUpdates()) {
+        updateThingSpeak(device);
+      }
+    }
   }
 
 }
