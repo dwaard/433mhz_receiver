@@ -32,6 +32,11 @@ uint8_t i, j;                                          /* i is the column, j is 
 
 
 
+/**
+ * Start listening to signals coming in on the specified interrupt pin
+ * 
+ * @param interruptPin the interrupt pin to listen to
+ */
 void THReceiver::begin(int interruptPin) {
   interrupt = digitalPinToInterrupt(interruptPin);
   lastInt = 0; 
@@ -44,10 +49,16 @@ void THReceiver::begin(int interruptPin) {
   attachInterrupt(interrupt, handleInterrupt, CHANGE);
 }
 
+/**
+ * Returns the last received measurement.
+ */
 Measurement THReceiver::getLastMeasurement() {
   return last;
 }
 
+/**
+ * Interrupt handler routine
+ */
 void RECEIVE_ATTR THReceiver::handleInterrupt() {
   volatile unsigned long currInt = micros();
 
@@ -106,6 +117,10 @@ void RECEIVE_ATTR THReceiver::handleInterrupt() {
   }
 }
 
+/**
+ * Checks the state of the receiver. Returns `true` if and only if a new measurement
+ * is received and ready for processing. Otherwise it returns `false`.
+ */
 bool THReceiver::isAvailable() {
   // if a sync frame received within 100 ms (assuming a 36-bit packet of "1" will be sent in 95 ms)
   if (!((micros() > lastSync + 100000) && (keepWaiting == true)))
@@ -136,6 +151,11 @@ bool THReceiver::isAvailable() {
   return available;
 }
 
+/**
+ * Process a raw bitstream of mutiple packets. It takes the majority of each
+ * bit by counting packets with each of the two bit states. It returns `true`
+ * if and only if a valid measurement is received. Otherwise it returns `false`.
+ */
 bool THReceiver::processRawBitstream() {
   bool finalBits[BITS_PER_PACKET] = { 0 };
   int8_t bitLowCnt = 0, bitHighCnt = 0;

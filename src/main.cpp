@@ -34,7 +34,7 @@ WiFiClient  client;
 
 THReceiver receiver = THReceiver();
 
-THDeviceManager manager = THDeviceManager();
+THDeviceManager manager = THDeviceManager(5);
 
 unsigned long last_sent = 0;
 
@@ -53,11 +53,11 @@ void initWifi() {
 }
 
 void initDevices() {
-  manager.add(new THDevice(0x1D, 1,"Buiten slk", 0 ));
-  manager.add(new THDevice(0x45, 1,"Garage", -1.3 ));
-  manager.add(new THDevice(0x5C, 1,"Keuken", 0 ));
-  manager.add(new THDevice(0x70, 1,"Buiten kantoor", 0 ));
-  manager.add(new THDevice(0xE5, 1,"Kelder", 0 ));
+  manager.add(*(new THDevice(0x1D, 1,"Buiten slk"    ,  0  )));
+  manager.add(*(new THDevice(0x45, 1,"Garage"        , -1.3)));
+  manager.add(*(new THDevice(0x5C, 1,"Keuken"        ,  0  )));
+  manager.add(*(new THDevice(0x70, 1,"Buiten kantoor",  0  )));
+  manager.add(*(new THDevice(0xE5, 1,"Kelder"        ,  0  )));
 }
 
 void printMeasurement(Measurement m) {
@@ -110,14 +110,9 @@ void loop() {
     Measurement measurement = receiver.getLastMeasurement();
     printMeasurement(measurement);
 
-    if (manager.deviceExists(measurement.deviceID)) {
-      THDevice device = manager.getDevice(measurement.deviceID);
-
-      device.process(measurement);
-
-      if (device.hasUpdates()) {
-        updateThingSpeak(device);
-      }
+    if (manager.process(measurement)) {
+      THDevice* device = manager.getDevice(measurement.deviceID);
+      updateThingSpeak(*device);
     }
   }
 
