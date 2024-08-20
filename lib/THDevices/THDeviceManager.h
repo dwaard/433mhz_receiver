@@ -2,23 +2,24 @@
 // Include guard. Prevents program errors if the library is accidentally included more than once in the sketch
 #ifndef _THDeviceManager_h 
   #define _THDeviceManager_h
-  #include "THReciever.h"
-
+  #include "THMeasurement.h"
+  #include <stdio.h>
+  #include <cstdlib>
+  
   class THDevice {
     public:
-      THDevice(uint8_t deviceID, uint8_t channelNo, String name, float correction);
+      THDevice(uint8_t deviceID, uint8_t channelNo, char *name, float correction);
       bool operator == (const THDevice &other);
       bool hasID(uint8_t id);
-      String getName();
+      void printName(char *buf);
       bool process(Measurement measurement);
       bool hasUpdates();
       Measurement getLastMeasurement();
 
-
     private:
       uint8_t _deviceID;
       uint8_t _channelNo;
-      String _name;
+      char *_name;
       bool _batteryState;
       float _correction;
       bool _hasUpdates;

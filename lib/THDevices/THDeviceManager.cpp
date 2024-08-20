@@ -9,7 +9,7 @@
  */
 THDeviceManager::THDeviceManager(uint8_t maxDevices) {
   maxSize = maxDevices;
-  THDevice* newArr = (THDevice*)malloc(sizeof(THDevice*) * maxDevices);
+  THDevice* newArr = (THDevice*) std::malloc(sizeof(THDevice*) * maxDevices);
   delete devices;
   devices = newArr;
   size=0;
@@ -68,6 +68,7 @@ THDevice *THDeviceManager::getDevice(uint8_t deviceID) {
     if (devices[n].hasID(deviceID))
       return &devices[n];
   }
+  return nullptr;
 }
 
 /**

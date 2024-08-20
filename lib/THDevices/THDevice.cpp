@@ -9,7 +9,7 @@
  *              device monitors
  * @param correction temperature correction. A simple calibration feature
  */
-THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, String name, float correction) {
+THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, char *name, float correction) {
   _deviceID = deviceID;
   _channelNo = channelNo;
   _name = name;
@@ -35,10 +35,9 @@ bool THDevice::hasID(uint8_t id) {
 /**
  * Returns a human readable name of this device. 
  */
-String THDevice::getName() {
-  char buffer [3];
-  sprintf(buffer, "%x", + _deviceID);
-  return _name + " (" + buffer + ")";
+ void THDevice::printName(char *buf) {
+  // building a char array like "_name (0xid)"
+  sprintf(buf, "%s (0x%X)", _name, _deviceID);
 }
 
 /**

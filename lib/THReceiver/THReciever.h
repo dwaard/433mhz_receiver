@@ -18,22 +18,15 @@
   #elif defined(SPARK)
       #include "application.h"
   #else
-      #include "WProgram.h"
+      // #include "WProgram.h"
+      #include <cstdint>
   #endif
 
   /* Signal and bit stream characteristics */
   #define BITS_PER_PACKET 36
   #define PACKETS_PER_STREAM 10
 
-  /* The struct for an actual measurement */
-  struct Measurement {
-    unsigned long timestamp;
-    uint8_t deviceID;
-    bool batteryState;
-    uint8_t channelNo;
-    float temperature;
-    uint8_t humidity;
-  };
+  #include "THMeasurement.h"
 
   class THReceiver {
     public:

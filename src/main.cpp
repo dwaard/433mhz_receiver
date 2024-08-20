@@ -76,7 +76,7 @@ void updateThingSpeak(THDevice d) {
   Measurement m = d.getLastMeasurement();
   ThingSpeak.setField(1, m.temperature);
   if (!m.batteryState) {
-    ThingSpeak.setStatus("Battery " + d.getName() + " low");
+    ThingSpeak.setStatus("Battery " + d.printName() + " low");
   }
   
   unsigned long current = millis();
