@@ -232,10 +232,10 @@ void processDecodedData() {
       ThingSpeak.setStatus("Battery Keuken (5C) low");
     }
   }
-  if (deviceID==0x70) { // Buiten kantoor
+  if (deviceID==0x80) { // Buiten kantoor
     ThingSpeak.setField(4, temperature);
     if (!batteryState) {
-      ThingSpeak.setStatus("Battery Buiten kantoor (70) low");
+      ThingSpeak.setStatus("Battery Buiten kantoor (80) low");
     }
   }
   if (deviceID==0xE5) { // Kelder
