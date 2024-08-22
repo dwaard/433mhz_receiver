@@ -17,7 +17,7 @@ What things you need to install the software and how to install them
 
 A step by step series of examples that tell you how to get a development env running
 
-1. Create a `secrets.h` file (copy from the example)
+1. Create a `secrets.h` file in the src folder (copy from the example)
 1. Fill out your wifi credentials
 1. Create a channel on ThingSpeak
 1. Enable the correct amount of fields. Check the code for the name of each field
