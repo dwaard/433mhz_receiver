@@ -8,7 +8,7 @@ This sample code requires ESP8266 or AVR Arduino with 433.92 MHz receiver.
 Optional for ESP8266: 0.96" I2C OLED and MQTT functionality
 
 ******************************************************************************/
-
+#include <Arduino.h>
 #include "secrets.h"
 
 /* Platform specific stuff */
@@ -65,6 +65,96 @@ float temperature = 0;
 uint8_t humidity = 0;
 
 unsigned long last_sent = 0;
+
+const char* names[] =
+{
+    "UNEXISTING"
+    "Buiten slk",
+    "Garage",
+    "Keuken",
+    "Kantoor",
+    "Kelder"
+};
+
+void initWifi() {
+  // Connect or reconnect to WiFi
+  if(WiFi.status() != WL_CONNECTED){
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(SECRET_SSID);
+    while(WiFi.status() != WL_CONNECTED){
+      WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
+      Serial.print(WiFi.status());
+      delay(5000);     
+    } 
+    Serial.println("\nConnected.");
+  }
+}
+
+void processDecodedData() {
+  char sentence[20];
+  sprintf(sentence, "%X;%s;%i;%.1f;%i", deviceID, batteryState ? "N" : "L", channelNo, temperature, humidity);
+
+  // Serial.print(deviceID, HEX);
+  // Serial.print(";");
+  // Serial.print(batteryState ? "N" : "L");
+  // Serial.print(";");
+  // Serial.print(channelNo);
+  // Serial.print(";");
+  // Serial.print(temperature, 1);
+  // Serial.print(";");
+  Serial.println(sentence);
+
+  unsigned int field = 0;
+
+  // set the fields with the values
+  switch (deviceID)
+  {
+  case 0x1D:
+    field = 1; 
+    break;  
+  case 0x4C:
+    field = 2;
+    break;
+  case 0x59:
+    field = 3;
+    break;
+  case 0x80:
+    field = 4;
+    break;
+  case 0xE5:
+    field = 5;
+    break;
+  default:
+    char buffer[40];
+    sprintf(buffer, "Unknown device: %s", sentence);
+    ThingSpeak.setStatus(buffer);
+    break;
+  }
+
+  if (field > 0) {
+    ThingSpeak.setField(field, temperature);
+    if (!batteryState) {
+      char buffer[40];
+      sprintf(buffer, "Batterij %s (0x%X) laag", names[field], deviceID);
+      ThingSpeak.setStatus(buffer);
+    }
+  }
+
+  unsigned long current = millis();
+  if ((current - last_sent) > 60000 || last_sent == 0) {
+    initWifi();
+
+    //write to the ThingSpeak channel
+    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+    if(x == 200){
+      Serial.println("Channel update successful.");
+    }
+    else{
+      Serial.println("Problem updating channel. HTTP error code " + String(x));
+    }
+    last_sent = current;
+  }
+}
 
 INTERRUPT_ROUTINE mapPulseTimingsToBits() {
   currInt = micros();
@@ -202,80 +292,6 @@ void processRawBitstream() {
   }
 }
 
-void processDecodedData() {
-  Serial.print(deviceID, HEX);
-  Serial.print(";");
-  Serial.print(batteryState ? "N" : "L");
-  Serial.print(";");
-  Serial.print(channelNo);
-  Serial.print(";");
-  Serial.print(temperature, 2);
-  Serial.print(";");
-  Serial.println(humidity, DEC);
-
-  // set the fields with the values
-  if (deviceID==0x1D) { // Buiten slaapkamer
-    ThingSpeak.setField(1, temperature);
-    if (!batteryState) {
-      ThingSpeak.setStatus("Battery Buiten slk (1D) low");
-    }
-  }
-  if (deviceID==0x45) { // Garage
-    ThingSpeak.setField(2, temperature);
-    if (!batteryState) {
-      ThingSpeak.setStatus("Battery Garage (45) low");
-    }
-  }
-  if (deviceID==0x5C) { // Keuken
-    ThingSpeak.setField(3, temperature);
-    if (!batteryState) {
-      ThingSpeak.setStatus("Battery Keuken (5C) low");
-    }
-  }
-  if (deviceID==0x70) { // Buiten kantoor
-    ThingSpeak.setField(4, temperature);
-    if (!batteryState) {
-      ThingSpeak.setStatus("Battery Buiten kantoor (70) low");
-    }
-  }
-  if (deviceID==0xE5) { // Kelder
-    ThingSpeak.setField(5, temperature);
-    if (!batteryState) {
-      ThingSpeak.setStatus("Battery Kelder (E5) low");
-    }
-  }
-  
-
-  unsigned long current = millis();
-  if ((current - last_sent) > 60000 || last_sent == 0) {
-    initWifi();
-
-    //write to the ThingSpeak channel
-    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-    if(x == 200){
-      Serial.println("Channel update successful.");
-    }
-    else{
-      Serial.println("Problem updating channel. HTTP error code " + String(x));
-    }
-    last_sent = current;
-  }
-}
-
-void initWifi() {
-  // Connect or reconnect to WiFi
-  if(WiFi.status() != WL_CONNECTED){
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(SECRET_SSID);
-    while(WiFi.status() != WL_CONNECTED){
-      WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
-      Serial.print(".");
-      delay(5000);     
-    } 
-    Serial.println("\nConnected.");
-  }
-}
-
 void setup() {
   Serial.begin(115200);
   Serial.println("Initializing wifi...");
@@ -314,3 +330,4 @@ void loop() {
     attachInterrupt(digitalPinToInterrupt(decPin), mapPulseTimingsToBits, CHANGE);
   }
 }
+
