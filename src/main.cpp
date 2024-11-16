@@ -93,26 +93,16 @@ void initWifi() {
 void processDecodedData() {
   char sentence[20];
   sprintf(sentence, "%X;%s;%i;%.1f;%i", deviceID, batteryState ? "N" : "L", channelNo, temperature, humidity);
-
-  // Serial.print(deviceID, HEX);
-  // Serial.print(";");
-  // Serial.print(batteryState ? "N" : "L");
-  // Serial.print(";");
-  // Serial.print(channelNo);
-  // Serial.print(";");
-  // Serial.print(temperature, 1);
-  // Serial.print(";");
   Serial.println(sentence);
 
   unsigned int field = 0;
-
   // set the fields with the values
   switch (deviceID)
   {
   case 0x1D:
     field = 1; 
     break;  
-  case 0x4C:
+  case 0xF6:
     field = 2;
     break;
   case 0x59:
