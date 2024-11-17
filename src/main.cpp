@@ -43,16 +43,20 @@ THReceiver receiver = THReceiver();
 
 unsigned long last_sent = 0;
 
-const THDevice devices[] = 
-{
-  THDevice(0x1D, 1, "Buiten slk",  0  ),
-  THDevice(0xF6, 1, "Garage"    , -1.3),
-  THDevice(0x59, 1, "Keuken"    ,  0  ),
-  THDevice(0x80, 1, "Kantoor"   ,  0  ),
-  THDevice(0xE5, 1, "Kelder"    ,  0  ),
-};
+THDevice **devices;
 
-void initWifi() {
+const int DEVICE_COUNT = 5;
+
+void initDevices() {
+  devices = new THDevice*[DEVICE_COUNT];
+  devices[0] = new THDevice(0x1D, 1, "Buiten slk",  0  );
+  devices[1] = new THDevice(0xF6, 1, "Garage"    , -1.3);
+  devices[2] = new THDevice(0x59, 1, "Keuken"    ,  0  );
+  devices[3] = new THDevice(0x80, 1, "Kantoor"   ,  0  );
+  devices[4] = new THDevice(0xE5, 1, "Kelder"    ,  0  );
+}
+
+void connectWifi() {
   // Connect or reconnect to WiFi
   if(WiFi.status() != WL_CONNECTED){
     Serial.print("Attempting to connect to SSID: ");
@@ -66,44 +70,44 @@ void initWifi() {
   }
 }
 
-int findDeviceIndex(THPacket p) {
-  int size = sizeof(devices);
-  for (int n=0; n<size; n++) {
-    THDevice d = devices[n];
-    if (d.hasID(p.deviceID))
+void initWifi() {
+  Serial.println("Initializing WiFi...");
+  WiFi.mode(WIFI_STA);
+  connectWifi();
+}
+
+int findDevice(uint8_t deviceID) {
+  for (int n = 0; n < DEVICE_COUNT; n++) {
+    THDevice *d = devices[n];
+    if (d->hasID(deviceID))
       return n;
   }
   return -1;
 }
 
-void processDecodedData(THPacket m) {
-  char sentence[20];
-  sprintf(sentence, "%X;%s;%i;%.1f;%i", m.deviceID, m.batteryState ? "N" : "L", m.channelNo, m.temperature, m.humidity);
-  Serial.println(sentence);
+void updateThingSpeak() {
+  Serial.println("Trying to update ThingSpeak.");
+  bool hasUpdates = false;
 
-  unsigned int deviceIndex = findDeviceIndex(m);
-  if (deviceIndex >= 0) {
-    // Add the measurement to ThingSpeak
-    THDevice d = devices[deviceIndex];
-    ThingSpeak.setField(deviceIndex + 1, m.temperature);
-    if (!m.batteryState) {
-      char buffer[40];
-      d.printName(buffer);
-      char status[strlen(buffer) + 15];
-      sprintf(status, "Batterij %s laag", buffer);
-      ThingSpeak.setStatus(status);
+  for (int n = 0; n < DEVICE_COUNT; n++) {
+    THDevice *d = devices[n];
+    if (d->hasUpdates()) {
+      THPacket m = d->getLastRecieved();
+      ThingSpeak.setField(n + 1, m.temperature);
+      if (!m.batteryState) {
+        char buffer[40];
+        d->printName(buffer);
+        char status[80];
+        sprintf(status, "Batterij %s laag", buffer);
+        ThingSpeak.setStatus(status);
+      }
+      hasUpdates = true;
     }
-  } else {
-    // Add a status about an unknown device
-    char buffer[40];
-    sprintf(buffer, "Unknown device: %s", sentence);
-    ThingSpeak.setStatus(buffer);
   }
-
-  unsigned long current = millis();
-  if ((current - last_sent) > 60000 || last_sent == 0) {
-    initWifi();
-
+  
+  if (hasUpdates) {
+    // reconnect if needed
+    connectWifi();
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if(x == 200){
@@ -112,26 +116,45 @@ void processDecodedData(THPacket m) {
     else{
       Serial.println("Problem updating channel. HTTP error code " + String(x));
     }
-    last_sent = current;
+  } else {
+    Serial.println("Nothing to update.");
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Initializing wifi...");
-  WiFi.mode(WIFI_STA);
   initWifi();
   Serial.println("Initializing ThingSpeak...");
   ThingSpeak.begin(client);
   Serial.println("Initializing decoder...");
   receiver.begin(RECEIVER_PIN);
-  Serial.println("Start receiving packages...");
+  Serial.println("Start receiving packets...");
+  initDevices();
 }
 
 void loop() {
   if (receiver.isAvailable()) {
-    THPacket measurement = receiver.getLastReceived();
-    processDecodedData(measurement);
+    THPacket packet = receiver.getLastReceived();
+    char sentence[20];
+    sprintf(sentence, "%X;%s;%i;%.1f;%i", packet.deviceID, packet.batteryState ? "N" : "L", packet.channelNo, packet.temperature, packet.humidity);
+    Serial.println(sentence);
+
+    int i = findDevice(packet.deviceID);
+    if (i >= 0) {
+      THDevice *d = devices[i];
+      d->process(packet);
+    } else {
+      // Add a status about an unknown device
+      char buffer[40];
+      sprintf(buffer, "Unknown device: %s", sentence);
+      ThingSpeak.setStatus(buffer);
+    }
+
+    unsigned long current = millis();
+    if ((current - last_sent) > 60000 || last_sent == 0) {
+      updateThingSpeak();
+      last_sent = current;
+    }
   }
 }
 

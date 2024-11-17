@@ -15,6 +15,7 @@ THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float 
   _channelNo = channelNo;
   _name = name;
   _correction = correction;
+  _hasUpdates = false;
 }
 
 /**
@@ -41,6 +42,19 @@ bool THDevice::hasID(uint8_t id) {
   sprintf(buf, "%s (0x%X)", _name, _deviceID);
 }
 
+bool THDevice::isValid(THPacket packet) {
+  if (packet.deviceID != _deviceID) {
+    return false;
+  }
+  if (packet.humidity > 100) {
+    return true;
+  }
+  if (packet.temperature < -50 || packet.temperature > 50) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Process a new measurement for this device. Returns `true` if and only
  * if this method results into a state change of this device. Otherwise 
@@ -48,11 +62,12 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param measurement the measurement to process
  */
-bool THDevice::process(THPacket measurement) {
-  if (measurement.deviceID != _deviceID) {
+bool THDevice::process(THPacket packet) {
+  if (!isValid(packet)) {
     return false;
   }
-  _last = measurement;
+  _last = packet;
+  _last.temperature += _correction;
   _hasUpdates = true;
   return true;
 }
@@ -62,13 +77,13 @@ bool THDevice::process(THPacket measurement) {
  * Otherwise `false`.
  */
 bool THDevice::hasUpdates() {
-  return _hasUpdates;
+  return _hasUpdates == true;
 }
 
 /**
  * Returns the last received Measurement.
  */
-THPacket THDevice::getLastMeasurement() {
+THPacket THDevice::getLastRecieved() {
   _hasUpdates = false;
   return _last;
 }

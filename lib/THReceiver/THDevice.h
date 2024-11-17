@@ -19,16 +19,17 @@
       
       bool hasUpdates();
       
-      THPacket getLastMeasurement();
+      THPacket getLastRecieved();
 
     private:
       uint8_t _deviceID;
       uint8_t _channelNo;
       const char *_name;
-      bool _batteryState;
       float _correction;
       bool _hasUpdates;
 
       THPacket _last;
+
+      bool isValid(THPacket packet);
   };
 #endif
