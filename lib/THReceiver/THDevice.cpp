@@ -1,6 +1,5 @@
 #include "THDevice.h"
 
-
 /**
  * Constructor for this class
  * 
@@ -35,7 +34,9 @@ bool THDevice::hasID(uint8_t id) {
 }
 
 /**
- * Returns a human readable name of this device. 
+ * Prints a human readable name of this device to the specified buffer.
+ * 
+ * @param buf the buffer to print to 
  */
  void THDevice::printName(char *buf) {
   // building a char array like "_name (0xid)"
@@ -46,9 +47,10 @@ bool THDevice::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
     return false;
   }
-  if (packet.humidity > 100) {
-    return true;
-  }
+  // Disabled because of 1 sensor that seems to have a broken humidity sensor
+  // if (packet.humidity > 100) {
+  //   return false;
+  // }
   if (packet.temperature < -50 || packet.temperature > 50) {
     return false;
   }
