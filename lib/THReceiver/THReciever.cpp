@@ -225,6 +225,7 @@ bool THReceiver::processRawBitstream() {
 
     // valid data received
     if (m.deviceID != 0) {
+      m.timestamp = millis();
       last = m;
       return true;
     }
