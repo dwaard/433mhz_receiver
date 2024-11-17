@@ -24,7 +24,7 @@ volatile unsigned long lastInt;            /* the most recent interrupt time */
 volatile unsigned long timeInt1, timeInt2; /* These variables store the last two pulse timings */
 volatile bool keepWaiting;                 /* this is reset when the signal is idle and we can start processing sampled data */
 volatile unsigned long lastSync;           /* last time a sync frame got received */
-THPacket last;                          /* The last received measurement */
+THPacket last;                             /* The last received measurement */
 
 bool rawBits[PACKETS_PER_STREAM][BITS_PER_PACKET + 1]; /* two dimension array for raw bitstream; number of rows and columns is set for expected signal */
                                                        /* there is one extra bit at the end which will be used as complete flag (i.e. if the row has been filled by exactly 36 bits) */
