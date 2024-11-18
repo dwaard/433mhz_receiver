@@ -39,7 +39,7 @@
       const int MAX_STATUS_SIZE = 220;
       char* _status = new char[MAX_STATUS_SIZE];
 
-      const int BASELINE_TIMEOUT = 5 * 60 * 1000;
+      const int BASELINE_TIMEOUT = 10 * 60 * 1000;
       const int BASELINE_SIZE = 3;
       const float BASELINE_TEMP_THRESHOLD = 0.3;
       float *_baselineTemps = new float[BASELINE_SIZE];

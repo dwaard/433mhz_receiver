@@ -53,6 +53,7 @@ bool THDevice::isValid(THPacket packet) {
   //   return false;
   // }
   if (packet.temperature < -50 || packet.temperature > 50) {
+    addStatus("ongeldig packet");
     return false;
   }
   // The baseline temperature validator
@@ -66,34 +67,22 @@ bool THDevice::isValid(THPacket packet) {
   } else {
     float prevTemp = _baselineTemps[_latestTempBaselineIndex];
     _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
-    Serial.print("  Calculating diff: |");
-    Serial.print(prevTemp);
-    Serial.print(" - ");
-    Serial.print(packet.temperature);
     float diff = abs(prevTemp - packet.temperature);
-    Serial.print("| = ");
-    Serial.print(diff);
-    if (diff > BASELINE_TEMP_THRESHOLD) {
-      Serial.print(": too high!");
+   if (diff > BASELINE_TEMP_THRESHOLD) {
+      addStatus("packet buiten baseline");
       if (_validTempsCount >= BASELINE_SIZE) {
         // return false when the baseline is filled
-        Serial.println(" So, rejecting the packet");
-        addStatus("packet reject");
         return false;
       }
       // when the baseline is still filling, reset the baseline
-      Serial.print(" So, resetting the baseline");
       _validTempsCount = 0;
     }
-    Serial.println();
   }
   // Now, the recieved temp is either the first or the "same" as the previous
   // Add it to the baseline.
   _baselineTemps[_latestTempBaselineIndex] = packet.temperature;
   _lastReceived = packet.timestamp;
   _validTempsCount++;
-  Serial.print("  The baseline size is now: ");
-  Serial.println(_validTempsCount);
   if (_validTempsCount < BASELINE_SIZE) {
     // The baseline is not filled yet
     return false;

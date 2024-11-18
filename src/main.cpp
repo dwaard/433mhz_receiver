@@ -84,7 +84,7 @@ void connectWifi() {
       delay(5000);     
     } 
     Serial.println("\nConnected.");
-    addStatus("Device is connected");
+    addStatus("Device: (re)connected");
   }
 }
 
@@ -117,11 +117,6 @@ void updateThingSpeak() {
       Serial.print("  ");
       Serial.print(buffer);
       Serial.println(" has updates.");
-      // if (!m.batteryState) {
-      //   char status1[80];
-      //   sprintf(status1, "Batterij %s laag", buffer);
-      //   addStatus(status1);
-      // }
       hasUpdates = true;
     }
     if (d->hasStatusupdates()) {
@@ -147,7 +142,7 @@ void updateThingSpeak() {
     }
     else{
       Serial.println("Problem updating channel. HTTP error code " + String(x));
-      addStatus("Previous update was not succesful");
+      addStatus("ThingSpeak: Previous update was not succesful");
     }
   } else {
     Serial.println("Nothing to update.");
