@@ -178,12 +178,15 @@ void loop() {
       sprintf(buffer, "Onbekend device: %s", sentence);
       addStatus(buffer);
     }
+  }
 
-    unsigned long current = millis();
-    if ((current - last_sent) > 60000 || last_sent == 0) {
-      updateThingSpeak();
-      last_sent = current;
-    }
+  unsigned long current = millis();
+  if ((current - last_sent) > 60000 || last_sent == 0) {
+    updateThingSpeak();
+    last_sent = current;
+  } else {
+    // Give the cpu some rest
+    delay(100);
   }
 }
 
