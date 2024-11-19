@@ -168,6 +168,8 @@ void THDevice::addStatus( const char *msg) {
     strlcat(_status, "; ", MAX_STATUS_SIZE);
   }
   strlcat(_status, msg, MAX_STATUS_SIZE);
+  Serial.print("  ");
+  Serial.println(_status);
 }
 
 bool THDevice::hasStatusupdates() {
