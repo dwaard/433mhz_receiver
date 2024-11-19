@@ -21,15 +21,35 @@
       
       THPacket getLastRecieved();
 
+      bool hasStatusupdates();
+      
+      const char* getStatusupdates();
+
+      void resetStatus();
+
     private:
       uint8_t _deviceID;
       uint8_t _channelNo;
       const char *_name;
       float _correction;
-      bool _hasUpdates;
 
+      bool _hasUpdates;
       THPacket _last;
 
+      const int MAX_STATUS_SIZE = 220;
+      char* _status = new char[MAX_STATUS_SIZE];
+
+      const int BASELINE_TIMEOUT = 10 * 60 * 1000;
+      const int BASELINE_SIZE = 3;
+      const float BASELINE_TEMP_THRESHOLD = 0.3;
+      float *_baselineTemps = new float[BASELINE_SIZE];
+      int _validTempsCount = 0;
+      int _latestTempBaselineIndex = 0;
+      unsigned long _lastReceived = 0;
+
       bool isValid(THPacket packet);
+
+      void addStatus(const char *msg);
+
   };
 #endif

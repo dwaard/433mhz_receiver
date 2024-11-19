@@ -15,6 +15,7 @@ THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float 
   _name = name;
   _correction = correction;
   _hasUpdates = false;
+  resetStatus();
 }
 
 /**
@@ -52,7 +53,42 @@ bool THDevice::isValid(THPacket packet) {
   //   return false;
   // }
   if (packet.temperature < -50 || packet.temperature > 50) {
+    addStatus("ongeldig packet");
     return false;
+  }
+  // The baseline temperature validator
+  unsigned int tdiff = packet.timestamp - _lastReceived; // Rollover safe  time diff
+  if (_validTempsCount == 0 || tdiff > BASELINE_TIMEOUT) {
+    // Reset the baseline on first time or timeout
+    Serial.println("  Reset the baseline on first time or timeout");
+    addStatus("baseline reset");
+    _validTempsCount = 0;
+    _latestTempBaselineIndex = 0;
+  } else {
+    float prevTemp = _baselineTemps[_latestTempBaselineIndex];
+    _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
+    float diff = abs(prevTemp - packet.temperature);
+   if (diff > BASELINE_TEMP_THRESHOLD) {
+      addStatus("packet buiten baseline");
+      if (_validTempsCount >= BASELINE_SIZE) {
+        // return false when the baseline is filled
+        return false;
+      }
+      // when the baseline is still filling, reset the baseline
+      _validTempsCount = 0;
+    }
+  }
+  // Now, the recieved temp is either the first or the "same" as the previous
+  // Add it to the baseline.
+  _baselineTemps[_latestTempBaselineIndex] = packet.temperature;
+  _lastReceived = packet.timestamp;
+  _validTempsCount++;
+  if (_validTempsCount < BASELINE_SIZE) {
+    // The baseline is not filled yet
+    return false;
+  }
+  if (_validTempsCount == BASELINE_SIZE) {
+    addStatus("baseline klaar");
   }
   return true;
 }
@@ -70,6 +106,9 @@ bool THDevice::process(THPacket packet) {
   }
   _last = packet;
   _last.temperature += _correction;
+  if (!packet.batteryState) {
+    addStatus("batterij laag");
+  }
   _hasUpdates = true;
   return true;
 }
@@ -88,4 +127,26 @@ bool THDevice::hasUpdates() {
 THPacket THDevice::getLastRecieved() {
   _hasUpdates = false;
   return _last;
+}
+
+void THDevice::addStatus( const char *msg) {
+  if (strlen(_status) == 0) {
+    printName(_status);
+    strlcat(_status, ": ", MAX_STATUS_SIZE);
+  } else {
+    strlcat(_status, "; ", MAX_STATUS_SIZE);
+  }
+  strlcat(_status, msg, MAX_STATUS_SIZE);
+}
+
+bool THDevice::hasStatusupdates() {
+  return strlen(_status) > 0;
+}
+
+const char* THDevice::getStatusupdates() {
+  return _status;
+}
+
+void THDevice::resetStatus() {
+  strlcpy(_status, "", MAX_STATUS_SIZE);
 }

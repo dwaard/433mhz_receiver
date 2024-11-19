@@ -43,6 +43,10 @@ THReceiver receiver = THReceiver();
 
 unsigned long last_sent = 0;
 
+
+const int MAX_STATUS_SIZE = 2000;
+char* status = new char[MAX_STATUS_SIZE];
+
 THDevice **devices;
 
 const int DEVICE_COUNT = 5;
@@ -56,6 +60,19 @@ void initDevices() {
   devices[4] = new THDevice(0xE5, 2, "Kelder"    ,  0  );
 }
 
+void resetStatus() {
+  strcpy(status, "");
+}
+
+void addStatus( const char *msg) {
+  if (strlen(status) == 0) {
+    strcpy(status, msg);
+  } else {
+    strlcat(status, " | ", MAX_STATUS_SIZE);
+    strlcat(status, msg, MAX_STATUS_SIZE);
+  }
+}
+
 void connectWifi() {
   // Connect or reconnect to WiFi
   if(WiFi.status() != WL_CONNECTED){
@@ -67,6 +84,7 @@ void connectWifi() {
       delay(5000);     
     } 
     Serial.println("\nConnected.");
+    addStatus("Device: (re)connected");
   }
 }
 
@@ -94,15 +112,24 @@ void updateThingSpeak() {
     if (d->hasUpdates()) {
       THPacket m = d->getLastRecieved();
       ThingSpeak.setField(n + 1, m.temperature);
-      if (!m.batteryState) {
-        char buffer[40];
-        d->printName(buffer);
-        char status[80];
-        sprintf(status, "Batterij %s laag", buffer);
-        ThingSpeak.setStatus(status);
-      }
+      char buffer[40];
+      d->printName(buffer);
+      Serial.print("  ");
+      Serial.print(buffer);
+      Serial.println(" has updates.");
       hasUpdates = true;
     }
+    if (d->hasStatusupdates()) {
+      addStatus(d->getStatusupdates());
+      d->resetStatus();
+    }
+  }
+
+  if (strlen(status) > 0) {
+    Serial.println("  There are statusupdates");
+    ThingSpeak.setStatus(status);
+    resetStatus();
+    hasUpdates = true;
   }
   
   if (hasUpdates) {
@@ -115,6 +142,7 @@ void updateThingSpeak() {
     }
     else{
       Serial.println("Problem updating channel. HTTP error code " + String(x));
+      addStatus("ThingSpeak: Previous update was not succesful");
     }
   } else {
     Serial.println("Nothing to update.");
@@ -123,13 +151,14 @@ void updateThingSpeak() {
 
 void setup() {
   Serial.begin(115200);
+  resetStatus();
   initWifi();
   Serial.println("Initializing ThingSpeak...");
   ThingSpeak.begin(client);
-  Serial.println("Initializing decoder...");
+  Serial.println("Initializing the rest...");
   receiver.begin(RECEIVER_PIN);
-  Serial.println("Start receiving packets...");
   initDevices();
+  Serial.println("Start receiving packets...");
 }
 
 void loop() {
@@ -146,15 +175,18 @@ void loop() {
     } else {
       // Add a status about an unknown device
       char buffer[40];
-      sprintf(buffer, "Unknown device: %s", sentence);
-      ThingSpeak.setStatus(buffer);
+      sprintf(buffer, "Onbekend device: %s", sentence);
+      addStatus(buffer);
     }
+  }
 
-    unsigned long current = millis();
-    if ((current - last_sent) > 60000 || last_sent == 0) {
-      updateThingSpeak();
-      last_sent = current;
-    }
+  unsigned long current = millis();
+  if ((current - last_sent) > 60000 || last_sent == 0) {
+    updateThingSpeak();
+    last_sent = current;
+  } else {
+    // Give the cpu some rest
+    delay(100);
   }
 }
 
