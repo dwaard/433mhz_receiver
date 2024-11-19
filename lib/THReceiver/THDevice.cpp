@@ -46,6 +46,9 @@ bool THDevice::hasID(uint8_t id) {
 
 bool THDevice::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
+    char msg[25];
+    sprintf(msg, "ongeldig deviceID: 0x%X", packet.deviceID);
+    addStatus(msg);
     return false;
   }
   // Disabled because of 1 sensor that seems to have a broken humidity sensor
@@ -53,7 +56,9 @@ bool THDevice::isValid(THPacket packet) {
   //   return false;
   // }
   if (packet.temperature < -50 || packet.temperature > 50) {
-    addStatus("ongeldig packet");
+    char msg[25];
+    sprintf(msg, "ongeldige temp.: %1f", packet.temperature);
+    addStatus(msg);
     return false;
   }
   // The baseline temperature validator
@@ -68,8 +73,10 @@ bool THDevice::isValid(THPacket packet) {
     float prevTemp = _baselineTemps[_latestTempBaselineIndex];
     _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
     float diff = abs(prevTemp - packet.temperature);
-   if (diff > BASELINE_TEMP_THRESHOLD) {
-      addStatus("packet buiten baseline");
+    if (diff > BASELINE_TEMP_THRESHOLD) {
+      char msg[35];
+      sprintf(msg, "temp.verandering te groot: %1f", diff);
+      addStatus(msg);
       if (_validTempsCount >= BASELINE_SIZE) {
         // return false when the baseline is filled
         return false;

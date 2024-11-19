@@ -142,7 +142,9 @@ void updateThingSpeak() {
     }
     else{
       Serial.println("Problem updating channel. HTTP error code " + String(x));
-      addStatus("ThingSpeak: Previous update was not succesful");
+      char msg[35];
+      sprintf(msg, "ThingSpeak: Previous update was not succesful (%d)", x);
+      addStatus(msg);
     }
   } else {
     Serial.println("Nothing to update.");
