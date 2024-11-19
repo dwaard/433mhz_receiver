@@ -116,7 +116,8 @@ void updateThingSpeak() {
       d->printName(buffer);
       Serial.print("  ");
       Serial.print(buffer);
-      Serial.println(" has updates.");
+      sprintf(buffer, " has new temperature: %.1f.", m.temperature);
+      Serial.println(buffer);
       hasUpdates = true;
     }
     if (d->hasStatusupdates()) {
@@ -137,12 +138,14 @@ void updateThingSpeak() {
     connectWifi();
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-    if(x == 200){
+    if(x == 200) {
       Serial.println("Channel update successful.");
     }
     else{
       Serial.println("Problem updating channel. HTTP error code " + String(x));
-      addStatus("ThingSpeak: Previous update was not succesful");
+      char msg[35];
+      sprintf(msg, "ThingSpeak: Previous update was not succesful (%d)", x);
+      addStatus(msg);
     }
   } else {
     Serial.println("Nothing to update.");
@@ -178,6 +181,12 @@ void loop() {
       sprintf(buffer, "Onbekend device: %s", sentence);
       addStatus(buffer);
     }
+  }
+
+  // Timeout watchdog
+  for (int n = 0; n < DEVICE_COUNT; n++) {
+    THDevice *d = devices[n];
+    d->checkTimeout();
   }
 
   unsigned long current = millis();

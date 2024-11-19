@@ -10,21 +10,17 @@
       THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float correction);
 
       bool operator == (const THDevice &other);
-      
+
       bool hasID(uint8_t id);
-      
       void printName(char *buf);
-      
+
       bool process(THPacket measurement);
-      
+      void checkTimeout();
+
       bool hasUpdates();
-      
       THPacket getLastRecieved();
-
       bool hasStatusupdates();
-      
       const char* getStatusupdates();
-
       void resetStatus();
 
     private:
@@ -43,13 +39,12 @@
       const int BASELINE_SIZE = 3;
       const float BASELINE_TEMP_THRESHOLD = 0.3;
       float *_baselineTemps = new float[BASELINE_SIZE];
-      int _validTempsCount = 0;
-      int _latestTempBaselineIndex = 0;
+      unsigned int _validTempsCount = 0;
+      unsigned int _latestTempBaselineIndex = 0;
       unsigned long _lastReceived = 0;
 
       bool isValid(THPacket packet);
 
       void addStatus(const char *msg);
-
   };
 #endif
