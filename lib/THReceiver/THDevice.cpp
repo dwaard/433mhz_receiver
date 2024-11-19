@@ -15,6 +15,7 @@ THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float 
   _name = name;
   _correction = correction;
   _hasUpdates = false;
+  _last.timestamp = 0; // Considered as an empty THPacket
   resetStatus();
 }
 
@@ -44,6 +45,32 @@ bool THDevice::hasID(uint8_t id) {
   sprintf(buf, "%s (0x%X)", _name, _deviceID);
 }
 
+/**
+ * Check if the device is timed out, which means that too much time has elapsed
+ * since this device has recieved a valid packet.
+ */
+void THDevice::checkTimeout() {
+  if (_lastReceived != 0) {
+    unsigned int tdiff = millis() - _lastReceived; // Rollover safe  time diff
+    if (tdiff > BASELINE_TIMEOUT) {
+      // Reset the baseline on first time or timeout
+      char buf[35];
+      printName(buf);
+      Serial.print(buf);
+      Serial.println(" timed out");
+      addStatus("timeout. Baseline is reset");
+      _validTempsCount = 0;
+      _latestTempBaselineIndex = 0;
+    }
+  }
+}
+
+/**
+ * Checks if the given packet is valid for this device.
+ * 
+ * @param packet the packet to validate
+ * @return `true` if the packet is valid
+ */
 bool THDevice::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
     char msg[25];
@@ -62,17 +89,11 @@ bool THDevice::isValid(THPacket packet) {
     return false;
   }
   // The baseline temperature validator
-  unsigned int tdiff = packet.timestamp - _lastReceived; // Rollover safe  time diff
-  if (_validTempsCount == 0 || tdiff > BASELINE_TIMEOUT) {
-    // Reset the baseline on first time or timeout
-    Serial.println("  Reset the baseline on first time or timeout");
-    addStatus("baseline reset");
-    _validTempsCount = 0;
-    _latestTempBaselineIndex = 0;
-  } else {
+  if (_validTempsCount > 0) {
+    // Compute the diff between the latest and previous temp.
     float prevTemp = _baselineTemps[_latestTempBaselineIndex];
-    _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
     float diff = abs(prevTemp - packet.temperature);
+
     if (diff > BASELINE_TEMP_THRESHOLD) {
       char msg[35];
       sprintf(msg, "temp.verandering te groot: %1f", diff);
@@ -84,6 +105,9 @@ bool THDevice::isValid(THPacket packet) {
       // when the baseline is still filling, reset the baseline
       _validTempsCount = 0;
     }
+
+    // Finally, increase the latest index before a new temp is added.
+    _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
   }
   // Now, the recieved temp is either the first or the "same" as the previous
   // Add it to the baseline.
