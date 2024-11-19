@@ -116,7 +116,7 @@ void updateThingSpeak() {
       d->printName(buffer);
       Serial.print("  ");
       Serial.print(buffer);
-      sprintf(buffer, " has new temperature: %.1f.", m.temperature);
+      sprintf(buffer, " sends: %.1f.", m.temperature);
       Serial.println(buffer);
       hasUpdates = true;
     }

@@ -14,7 +14,7 @@ THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float 
   _channelNo = channelNo;
   _name = name;
   _correction = correction;
-  _hasUpdates = false;
+  _hasNewPacket = false;
   _last.timestamp = 0; // Considered as an empty THPacket
   resetStatus();
 }
@@ -140,7 +140,7 @@ bool THDevice::process(THPacket packet) {
   if (!packet.batteryState) {
     addStatus("batterij laag");
   }
-  _hasUpdates = true;
+  _hasNewPacket = true;
   return true;
 }
 
@@ -149,14 +149,21 @@ bool THDevice::process(THPacket packet) {
  * Otherwise `false`.
  */
 bool THDevice::hasUpdates() {
-  return _hasUpdates == true;
+  if (!_hasNewPacket) {
+    return false;
+  }
+  return _prevUpdateTime == 0 
+    || (_last.temperature != _prevUpdateTemp) 
+    || (millis() - _prevUpdateTime) > UPDATE_TIMEOUT;
 }
 
 /**
  * Returns the last received Measurement.
  */
 THPacket THDevice::getLastRecieved() {
-  _hasUpdates = false;
+  _prevUpdateTemp = _last.temperature;
+  _prevUpdateTime = _last.timestamp;
+  _hasNewPacket = false;
   return _last;
 }
 
