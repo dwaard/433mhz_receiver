@@ -88,12 +88,17 @@ bool THDevice::isValid(THPacket packet) {
     return false;
   }
   if (packet.channelNo > _channelNo) {
-    addFormattedStatus("ongeldig channel no.: %i", packet.channelNo);
+    if (packet.channelNo != _prevUpdateChannel) {
+      addFormattedStatus("ongeldig channel no.: %i", packet.channelNo);
+      _prevUpdateChannel = packet.channelNo;
+    }
     // return false;
   }
   if (packet.humidity > 100) {
-    // Serial.println(packet.humidity);
-    addFormattedStatus("ongeldige humidity: %i", packet.humidity);
+    if (packet.humidity != _prevUpdateHum) {
+      addFormattedStatus("ongeldige humidity: %i", packet.humidity);
+      _prevUpdateHum = packet.humidity;
+    }
     // return false;
   }
   if (packet.temperature < -50 || packet.temperature > 50) {

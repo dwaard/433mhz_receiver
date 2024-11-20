@@ -34,6 +34,8 @@
       THPacket _last;
       unsigned long _prevUpdateTime = 0;
       float _prevUpdateTemp;
+      uint8_t _prevUpdateHum = -1;
+      uint8_t _prevUpdateChannel = -1;
       bool _hasNewPacket;
 
       String _status = String("");
