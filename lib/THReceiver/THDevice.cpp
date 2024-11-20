@@ -1,5 +1,14 @@
 #include "THDevice.h"
 
+String formatString(const char *format, ...) {
+    char buffer[128]; // Adjust size as needed
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    return String(buffer);
+}
+
 /**
  * Constructor for this class
  * 
@@ -40,9 +49,8 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- void THDevice::printName(char *buf) {
-  // building a char array like "_name (0xid)"
-  sprintf(buf, "%s (0x%X)", _name, _deviceID);
+ String THDevice::printName() {
+  return String(String(_name) + " (0x" + String(_deviceID, HEX) + ")");
 }
 
 /**
@@ -50,17 +58,20 @@ bool THDevice::hasID(uint8_t id) {
  * since this device has recieved a valid packet.
  */
 void THDevice::checkTimeout() {
+  unsigned long now = millis();
   if (_lastReceived != 0) {
-    unsigned int tdiff = millis() - _lastReceived; // Rollover safe  time diff
+    unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
     if (tdiff > BASELINE_TIMEOUT) {
       // Reset the baseline on first time or timeout
-      char buf[35];
-      printName(buf);
-      Serial.print(buf);
+      Serial.print(printName());
       Serial.println(" timed out");
-      addStatus("timeout. Baseline is reset");
-      _validTempsCount = 0;
-      _latestTempBaselineIndex = 0;
+      addStatus("timeout");
+      if (_validTempsCount > 0) {
+        _validTempsCount = 0;
+        _latestTempBaselineIndex = 0;
+        addStatus("baseline is reset");
+      }
+      _lastReceived = now;
     }
   }
 }
@@ -73,31 +84,31 @@ void THDevice::checkTimeout() {
  */
 bool THDevice::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
-    char msg[25];
-    sprintf(msg, "ongeldig deviceID: 0x%X", packet.deviceID);
-    addStatus(msg);
+    addFormattedStatus("ongeldig deviceID: 0x%X", packet.deviceID);
     return false;
   }
-  // Disabled because of 1 sensor that seems to have a broken humidity sensor
-  // if (packet.humidity > 100) {
-  //   return false;
-  // }
+  if (packet.channelNo > _channelNo) {
+    addFormattedStatus("ongeldig channel no.: %hhu", packet.channelNo);
+    // return false;
+  }
+  if (packet.humidity > 100) {
+    addFormattedStatus("ongeldige humidity: %hhu", packet.humidity);
+    // return false;
+  }
   if (packet.temperature < -50 || packet.temperature > 50) {
-    char msg[25];
-    sprintf(msg, "ongeldige temp.: %1f", packet.temperature);
-    addStatus(msg);
+    addFormattedStatus("ongeldige temp.: %.1f", packet.temperature);
     return false;
   }
   // The baseline temperature validator
-  if (_validTempsCount > 0) {
+  if (_validTempsCount == 0) {
+    addStatus("start baseline");
+  } else {
     // Compute the diff between the latest and previous temp.
     float prevTemp = _baselineTemps[_latestTempBaselineIndex];
     float diff = abs(prevTemp - packet.temperature);
 
     if (diff > BASELINE_TEMP_THRESHOLD) {
-      char msg[35];
-      sprintf(msg, "temp.verandering te groot: %1f", diff);
-      addStatus(msg);
+      addFormattedStatus("temp.verandering te groot: %1f", diff);
       if (_validTempsCount >= BASELINE_SIZE) {
         // return false when the baseline is filled
         return false;
@@ -167,26 +178,29 @@ THPacket THDevice::getLastRecieved() {
   return _last;
 }
 
-void THDevice::addStatus( const char *msg) {
-  if (strlen(_status) == 0) {
-    printName(_status);
-    strlcat(_status, ": ", MAX_STATUS_SIZE);
+void THDevice::addStatus(String msg) {
+    if (_status.length() == 0) {
+    _status = String(printName() + ": " + msg);
   } else {
-    strlcat(_status, "; ", MAX_STATUS_SIZE);
+    _status.concat("; " + msg);
   }
-  strlcat(_status, msg, MAX_STATUS_SIZE);
   Serial.print("  ");
-  Serial.println(_status);
+  Serial.println(msg);
+}
+
+void THDevice::addFormattedStatus(const char *format, ...) {
+  va_list args;
+  addStatus(formatString(format, args));
 }
 
 bool THDevice::hasStatusupdates() {
-  return strlen(_status) > 0;
+  return _status.length() > 0;
 }
 
-const char* THDevice::getStatusupdates() {
+String THDevice::getStatusupdates() {
   return _status;
 }
 
 void THDevice::resetStatus() {
-  strlcpy(_status, "", MAX_STATUS_SIZE);
+  _status = String("");
 }

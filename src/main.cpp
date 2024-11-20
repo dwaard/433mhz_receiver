@@ -46,6 +46,7 @@ unsigned long last_sent = 0;
 
 const int MAX_STATUS_SIZE = 2000;
 char* status = new char[MAX_STATUS_SIZE];
+String statusString;
 
 THDevice **devices;
 
@@ -61,15 +62,14 @@ void initDevices() {
 }
 
 void resetStatus() {
-  strcpy(status, "");
+  statusString = String("");
 }
 
-void addStatus( const char *msg) {
-  if (strlen(status) == 0) {
-    strcpy(status, msg);
+void addStatus(String msg) {
+  if (statusString.length() == 0) {
+    statusString = String(msg);
   } else {
-    strlcat(status, " | ", MAX_STATUS_SIZE);
-    strlcat(status, msg, MAX_STATUS_SIZE);
+    statusString.concat(" | " + msg);
   }
 }
 
@@ -112,12 +112,10 @@ void updateThingSpeak() {
     if (d->hasUpdates()) {
       THPacket m = d->getLastRecieved();
       ThingSpeak.setField(n + 1, m.temperature);
-      char buffer[40];
-      d->printName(buffer);
       Serial.print("  ");
-      Serial.print(buffer);
-      sprintf(buffer, " sends: %.1f.", m.temperature);
-      Serial.println(buffer);
+      Serial.print(d->printName());
+      Serial.print(" sends: ");
+      Serial.println(m.temperature);
       hasUpdates = true;
     }
     if (d->hasStatusupdates()) {
@@ -126,9 +124,10 @@ void updateThingSpeak() {
     }
   }
 
-  if (strlen(status) > 0) {
-    Serial.println("  There are statusupdates");
-    ThingSpeak.setStatus(status);
+  if (statusString.length() > 0) {
+    Serial.print("  Status: ");
+    Serial.println(statusString);
+    ThingSpeak.setStatus(statusString);
     resetStatus();
     hasUpdates = true;
   }
@@ -141,10 +140,9 @@ void updateThingSpeak() {
     if(x == 200) {
       Serial.println("Channel update successful.");
     }
-    else{
-      Serial.println("Problem updating channel. HTTP error code " + String(x));
-      char msg[35];
-      sprintf(msg, "ThingSpeak: Previous update was not succesful (%d)", x);
+    else {
+      String msg = String("Problem updating channel. HTTP error code " + String(x));
+      Serial.println(msg);
       addStatus(msg);
     }
   } else {

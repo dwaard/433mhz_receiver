@@ -2,6 +2,8 @@
 #ifndef _THDReciever_h 
   #define _THDReciever_h
   #include "THReciever.h"
+  #pragma once
+  #include <Arduino.h>  
   #include <stdio.h>
   #include <cstdlib>
 
@@ -12,7 +14,7 @@
       bool operator == (const THDevice &other);
 
       bool hasID(uint8_t id);
-      void printName(char *buf);
+      String printName();
 
       bool process(THPacket measurement);
       void checkTimeout();
@@ -20,7 +22,7 @@
       bool hasUpdates();
       THPacket getLastRecieved();
       bool hasStatusupdates();
-      const char* getStatusupdates();
+      String getStatusupdates();
       void resetStatus();
 
     private:
@@ -34,8 +36,7 @@
       float _prevUpdateTemp;
       bool _hasNewPacket;
 
-      const int MAX_STATUS_SIZE = 220;
-      char* _status = new char[MAX_STATUS_SIZE];
+      String _status = String("");
 
       const int UPDATE_TIMEOUT = 5 * 60 * 1000;
       const int BASELINE_TIMEOUT = 10 * 60 * 1000;
@@ -48,6 +49,9 @@
 
       bool isValid(THPacket packet);
 
-      void addStatus(const char *msg);
+      void addStatus(String msg);
+
+      void addFormattedStatus(const char *format, ...);
+      
   };
 #endif
