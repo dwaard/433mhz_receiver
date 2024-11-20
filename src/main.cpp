@@ -54,10 +54,10 @@ const int DEVICE_COUNT = 5;
 
 void initDevices() {
   devices = new THDevice*[DEVICE_COUNT];
-  devices[0] = new THDevice(0xD6, 1, "Buiten slk",  0  );
+  devices[0] = new THDevice(0x65, 1, "Buiten slk",  0  );
   devices[1] = new THDevice(0xF6, 1, "Garage"    , -1.3);
-  devices[2] = new THDevice(0x59, 1, "Keuken"    ,  0  );
-  devices[3] = new THDevice(0x80, 3, "Kantoor"   ,  0  );
+  devices[2] = new THDevice(0x22, 3, "Keuken"    ,  0  );
+  devices[3] = new THDevice(0xD7, 1, "Kantoor"   ,  0.2);
   devices[4] = new THDevice(0xE5, 2, "Kelder"    ,  0  );
 }
 

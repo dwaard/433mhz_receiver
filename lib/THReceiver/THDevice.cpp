@@ -88,11 +88,12 @@ bool THDevice::isValid(THPacket packet) {
     return false;
   }
   if (packet.channelNo > _channelNo) {
-    addFormattedStatus("ongeldig channel no.: %hhu", packet.channelNo);
+    addFormattedStatus("ongeldig channel no.: %i", packet.channelNo);
     // return false;
   }
   if (packet.humidity > 100) {
-    addFormattedStatus("ongeldige humidity: %hhu", packet.humidity);
+    // Serial.println(packet.humidity);
+    addFormattedStatus("ongeldige humidity: %i", packet.humidity);
     // return false;
   }
   if (packet.temperature < -50 || packet.temperature > 50) {
@@ -106,9 +107,9 @@ bool THDevice::isValid(THPacket packet) {
     // Compute the diff between the latest and previous temp.
     float prevTemp = _baselineTemps[_latestTempBaselineIndex];
     float diff = abs(prevTemp - packet.temperature);
-
+    // Serial.println("  abs(" + String(prevTemp) + " - " + String(packet.temperature) + ") = " + String(diff));
     if (diff > BASELINE_TEMP_THRESHOLD) {
-      addFormattedStatus("temp.verandering te groot: %1f", diff);
+      addFormattedStatus("temp.verandering te groot: %.1f", diff);
       if (_validTempsCount >= BASELINE_SIZE) {
         // return false when the baseline is filled
         return false;
@@ -189,8 +190,12 @@ void THDevice::addStatus(String msg) {
 }
 
 void THDevice::addFormattedStatus(const char *format, ...) {
-  va_list args;
-  addStatus(formatString(format, args));
+    char buffer[128]; // Adjust size as needed
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    addStatus(buffer);
 }
 
 bool THDevice::hasStatusupdates() {
