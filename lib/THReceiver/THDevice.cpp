@@ -161,7 +161,12 @@ bool THDevice::process(THPacket packet) {
   _last = packet;
   _last.temperature += _correction;
   if (!packet.batteryState) {
-    addStatus("batterij laag");
+    unsigned long now = millis();
+    unsigned long diff = now - _lastBatteryNotification;
+    if (diff > BATTERY_NOTIFICATION_INTERVAL) {
+      addStatus("batterij laag");
+      _lastBatteryNotification = now;
+    }
   }
   _hasNewPacket = true;
   return true;

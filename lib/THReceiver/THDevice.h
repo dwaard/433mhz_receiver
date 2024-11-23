@@ -40,6 +40,8 @@
       uint8_t _prevUpdateHum = -1;
       uint8_t _prevUpdateChannel = -1;
       bool _hasNewPacket;
+      unsigned long _lastBatteryNotification = 0;
+      const unsigned long BATTERY_NOTIFICATION_INTERVAL = 60 * 60 * 1000;
 
       String _status = String("");
 
