@@ -66,7 +66,7 @@ String statusString;
 
 THDevice **devices;
 
-const int DEVICE_COUNT = 6;
+const int DEVICE_COUNT = 7;
 
 
 void render() {
@@ -90,12 +90,13 @@ void println(String line) {
 
 void initDevices() {
   devices = new THDevice*[DEVICE_COUNT];
-  devices[0] = new THDevice(0x99, 1, "Buiten slk",  0  );
-  devices[1] = new THDevice(0xF6, 1, "Garage"    , -1.3);
-  devices[2] = new THDevice(0x22, 3, "Keuken"    ,  0  );
-  devices[3] = new THDevice(0xD7, 1, "Slaapkamer",  0  , THDevice::DISABLE_HUMIDITY);
-  devices[4] = new THDevice(0xE5, 2, "Kelder"    ,  0  );
-  devices[5] = new THDevice(0x00, 9, "BMP280"    ,  0  );
+  devices[0] = new THDevice(0x67, 1, "BT-S",  0  );
+  devices[1] = new THDevice(0xF6, 1, "Garg"    , -1.3);
+  devices[2] = new THDevice(0x22, 3, "Kkn"    ,  0  );
+  devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
+  devices[4] = new THDevice(0xE5, 2, "Kldr"    ,  0  );
+  devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
+  devices[6] = new THDevice(0x14, 1, "BT-G"    ,  0  );
 }
 
 void resetStatus() {
@@ -317,7 +318,7 @@ void loop() {
     packet.deviceID = 0;
     packet.channelNo = 9;
     packet.batteryState = 1;
-    packet.temperature = bmp280.readTempC();
+    packet.temperature = static_cast<float>(static_cast<int>(bmp280.readTempC() * 10.)) / 10.;
     packet.humidity = bmp280.readFloatHumidity();
     packet.timestamp = now;
     processPacket(packet);

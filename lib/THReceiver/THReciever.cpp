@@ -10,7 +10,7 @@
 #if defined(ESP8266)
     // interrupt handler and related code must be in RAM on ESP8266,
     // according to issue #46.
-    #define RECEIVE_ATTR ICACHE_RAM_ATTR
+    #define RECEIVE_ATTR IRAM_ATTR
     #define VAR_ISR_ATTR
 #elif defined(ESP32)
     #define RECEIVE_ATTR IRAM_ATTR
@@ -206,7 +206,7 @@ bool THReceiver::processRawBitstream() {
     m.batteryState = finalBits[8];
 
     // get channel number
-    m.channelNo = (int8_t(finalBits[10]) << 1) | int8_t(finalBits[11]) + 1;
+    m.channelNo = (int8_t(finalBits[10]) << 1) | (int8_t(finalBits[11]) + 1);
 
     // get temperature
     int16_t t12 = 0;
