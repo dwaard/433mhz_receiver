@@ -12,17 +12,23 @@ String formatString(const char *format, ...) {
 /**
  * Constructor for this class
  * 
+ * Some sensors do not send proper humidity values. To avoid useless statusupdates, 
+ * that value can be disabled.
+ * 
  * @param deviceID the ID of the device. Normally a number between 0 and 0xFF
  * @param channelNo should be 1, 2 or 4
  * @param name human readable name. Basically which temperature and humidity this
  *              device monitors
  * @param correction temperature correction. A simple calibration feature
+ * @param hasHumidity `false` to disable the humidity values (default `true`)
  */
-THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float correction) {
+THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, 
+                    float correction, bool hasHumidity) {
   _deviceID = deviceID;
   _channelNo = channelNo;
   _name = name;
   _correction = correction;
+  _hasHumidity = hasHumidity;
   _hasNewPacket = false;
   _last.timestamp = 0; // Considered as an empty THPacket
   resetStatus();
@@ -94,7 +100,7 @@ bool THDevice::isValid(THPacket packet) {
     }
     // return false;
   }
-  if (packet.humidity > 100) {
+  if (_hasHumidity && packet.humidity > 100) {
     if (packet.humidity != _prevUpdateHum) {
       addFormattedStatus("ongeldige humidity: %i", packet.humidity);
       _prevUpdateHum = packet.humidity;
@@ -155,7 +161,12 @@ bool THDevice::process(THPacket packet) {
   _last = packet;
   _last.temperature += _correction;
   if (!packet.batteryState) {
-    addStatus("batterij laag");
+    unsigned long now = millis();
+    unsigned long diff = now - _lastBatteryNotification;
+    if (diff > BATTERY_NOTIFICATION_INTERVAL) {
+      addStatus("batterij laag");
+      _lastBatteryNotification = now;
+    }
   }
   _hasNewPacket = true;
   return true;

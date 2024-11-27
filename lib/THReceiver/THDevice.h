@@ -9,7 +9,9 @@
 
   class THDevice {
     public:
-      THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float correction);
+      static const bool DISABLE_HUMIDITY = false;
+
+      THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float correction, bool hasHumidity = true);
 
       bool operator == (const THDevice &other);
 
@@ -30,6 +32,7 @@
       uint8_t _channelNo;
       const char *_name;
       float _correction;
+      bool _hasHumidity;
 
       THPacket _last;
       unsigned long _prevUpdateTime = 0;
@@ -37,6 +40,8 @@
       uint8_t _prevUpdateHum = -1;
       uint8_t _prevUpdateChannel = -1;
       bool _hasNewPacket;
+      unsigned long _lastBatteryNotification = 0;
+      const unsigned long BATTERY_NOTIFICATION_INTERVAL = 60 * 60 * 1000;
 
       String _status = String("");
 
