@@ -21,15 +21,12 @@ an 128x64 pixel I2C OLED display and BMP280
 
 #if defined(ARDUINO_ARCH_ESP8266)
 #include <ESP8266WiFi.h>
-#pragma "Building for ESP8266 platform..."
 
 #elif defined(ARDUINO_ARCH_AVR)
 #include <WiFi.h>
-#pragma "Building for Arduino AVR platform..."
 
 #elif defined(ARDUINO_ARCH_ESP32)
 #include <WiFi.h>
-#pragma "Building for ESP32 platform..."
 #endif
 
 #include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros

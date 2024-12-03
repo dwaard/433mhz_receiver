@@ -46,9 +46,9 @@
 
       String _status = String("");
 
-      const int UPDATE_TIMEOUT = 5 * 60 * 1000;
-      const int BASELINE_TIMEOUT = 15 * 60 * 1000;
-      const int BASELINE_SIZE = 3;
+      const unsigned long UPDATE_TIMEOUT = 5 * 60 * 1000;
+      const unsigned int BASELINE_TIMEOUT = 15 * 60 * 1000;
+      const unsigned int BASELINE_SIZE = 3;
       const float BASELINE_TEMP_THRESHOLD = 0.4;
       float *_baselineTemps = new float[BASELINE_SIZE];
       unsigned int _validTempsCount = 0;

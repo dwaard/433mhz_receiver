@@ -65,21 +65,20 @@ bool THDevice::hasID(uint8_t id) {
  * @param buf the buffer to print to 
  */
  String THDevice::getLastStatus() {
-  char buffer[16]; // A temporary buffer for the formatted string
-  if (_validTempsCount >= BASELINE_SIZE) {
-    char batt = ' ';
-    if (!_last.batteryState) {
-      batt = 'X';
-    }
-    sprintf(buffer, "%4s%s%5.1f", _name, batt, _last.temperature); // Use sprintf to format
-  } else {
-    String s = String("___");
-    for (int i = 0; i < _validTempsCount; i++) {
-      s.setCharAt(i, '-');
-    }
-    sprintf(buffer, "%4s   %3s", _name, s); // Use sprintf to format
+  String name = formatString("%4s", _name);
+  String batt = " ";
+  if (_validTempsCount > 0 && !_last.batteryState) {
+    batt = "X";
   }
-  return String(buffer);
+  String value = String("___");
+  if (_validTempsCount >= BASELINE_SIZE) {
+    value = formatString("%5.1f", _last.temperature);
+  } else {
+    for (unsigned int i = 0; i < _validTempsCount; i++) {
+      value.setCharAt(i, '-');
+    }
+  }
+  return String(name + batt + value);
 }
 
 /**
@@ -92,8 +91,6 @@ void THDevice::checkTimeout() {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
     if (tdiff > BASELINE_TIMEOUT) {
       // Reset the baseline on first time or timeout
-      Serial.print(getName());
-      Serial.println(" timed out");
       addStatus("timeout");
       if (_validTempsCount > 0) {
         _validTempsCount = 0;
