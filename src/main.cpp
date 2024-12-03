@@ -11,11 +11,12 @@ an 128x64 pixel I2C OLED display and BMP280
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <Wire.h>
-#include <Adafruit_SSD1306.h>
+// #include <Adafruit_SSD1306.h>
 #include "SparkFunBME280.h"
 // #include "WiFiUtils.h"
 #include "THReciever.h"
 #include "THDevice.h"
+#include "THDisplay.h"
 #include "secrets.h"
 
 #if defined(ARDUINO_ARCH_ESP8266)
@@ -38,19 +39,16 @@ an 128x64 pixel I2C OLED display and BMP280
 
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+THDisplay display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 const char* ssid = SECRET_SSID;   // your network SSID (name) 
 const char* pass = SECRET_PASS;   // your network password
 
 WiFiClient  client;
 
-
 unsigned long myChannelNumber = SECRET_CH_ID;
 const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
 
-String lines[] = {String(""), String(""), String(""), String(""), String(""), String(""), String(""), String("")};
-unsigned int lineptr = 0;
 
 #define MY_BMP280_ADDRESS 0x76
 BME280 bmp280; //Uses default I2C address 0x76
@@ -68,26 +66,6 @@ THDevice **devices;
 
 const int DEVICE_COUNT = 7;
 
-
-void render() {
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 1);
-  display.clearDisplay();
-  // Display the lines
-  for (unsigned int index = 0; index < 8; index++) {
-    display.println(lines[(lineptr + index) % 8]);
-  }
-  display.display(); 
-}
-
-
-void println(String line) {
-  lines[lineptr] = line;
-  lineptr = (lineptr + 1) % 8;
-  render();
-}
-
 void initDevices() {
   devices = new THDevice*[DEVICE_COUNT];
   devices[0] = new THDevice(0x67, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
@@ -96,7 +74,10 @@ void initDevices() {
   devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
   devices[4] = new THDevice(0x53, 2, "Kldr"    ,  0  );
   devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
-  devices[6] = new THDevice(0x14, 1, "BT-G"    ,  0  );
+  devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
+  for (int i=0; i<DEVICE_COUNT; i++) {
+    display.updateDeviceInfo(i, devices[i]->getLastStatus());
+  }
 }
 
 void resetStatus() {
@@ -141,24 +122,24 @@ const char* wl_status_to_string(wl_status_t status) {
 void connectWifi(const char* ssid, const char* pass) {
   // Connect or reconnect to WiFi
   if(WiFi.status() != WL_CONNECTED) {
-    println("SSID: " + String(ssid));
+    display.println("SSID: " + String(ssid));
     WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
     while(WiFi.status() != WL_CONNECTED){
-      println(wl_status_to_string(WiFi.status()));
+      display.println(wl_status_to_string(WiFi.status()));
       delay(5000);     
     } 
-    println("IP: " + WiFi.localIP().toString());
+    display.println("IP: " + WiFi.localIP().toString());
   }
 }
 
 void initWifi(const char* ssid, const char* pass) {
-  println("Initializing WiFi...");
+  display.println("Initializing WiFi...");
   WiFi.mode(WIFI_STA);
   connectWifi(ssid, pass);
 }
 
 void updateThingSpeak() {
-  println("Updating ThingSpeak.");
+  display.updateThingSpeakStatus(0);
   bool hasUpdates = false;
 
   for (int n = 0; n < DEVICE_COUNT; n++) {
@@ -175,7 +156,6 @@ void updateThingSpeak() {
   }
 
   if (statusString.length() > 0) {
-    println("Sent status");
     ThingSpeak.setStatus(statusString);
     resetStatus();
     hasUpdates = true;
@@ -186,16 +166,13 @@ void updateThingSpeak() {
     connectWifi(ssid, pass);
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-    if(x == 200) {
-      println("ThingSpeak update OK.");
-    }
-    else {
-      String msg = String("ThingSpeak error " + String(x));
-      println(msg);
+    display.updateThingSpeakStatus(x);
+    if(x != 200) {
+      String msg = String("ThingSpeak ERROR " + String(x));
       addStatus(msg);
     }
   } else {
-    println("Nothing to update.");
+    display.updateThingSpeakStatus(100);
   }
 }
 
@@ -204,7 +181,7 @@ void scan() {
   byte error, address;
   int nDevices;
 
-  println("Scanning I2C adresses");
+  display.println("Scanning I2C adresses");
 
   nDevices = 0;
   String result = String("");
@@ -224,12 +201,12 @@ void scan() {
     }
     else if (error==4)
     {
-      println("Unknown error at address " + deviceId);
+      display.println("Unknown error at address " + deviceId);
     }
   }
-  println(String("Found " + String(nDevices) +" devices."));
+  display.println(String("Found " + String(nDevices) +" devices."));
   if (nDevices > 0)
-    println(result);
+    display.println(result);
 }
 
 void startInifiniteErrorLoop() {
@@ -253,9 +230,10 @@ void setup() {
     addStatus("Display connect fail!");
   } else {
     display.setRotation(2);
-    println("Display connected.");
+    display.println("Display connected.");
   }
 
+  initDevices();
   // scan();
 
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
@@ -263,43 +241,38 @@ void setup() {
 
   if(bmp280.beginI2C() == false) {
     addStatus("BMP280 connect fail!");
-    println("BMP280 connect fail!");
+    display.println("BMP280 connect fail!");
   } else {
-    println("BMP280 connected.");
+    display.println("BMP280 connected.");
   } 
   initWifi(ssid, pass);
+  display.updateWifiStatus(WiFi.status() == WL_CONNECTED, WiFi.RSSI());
 
-  println("Start OTA");
+  display.println("Start OTA");
   ArduinoOTA.begin();
 
-  println("Start ThingSpeak");
+  display.println("Start ThingSpeak");
   ThingSpeak.begin(client);
 
-  println("Start receiver");
-  initDevices();
+  display.println("Start receiver");
   receiver.begin(THRECEIVER_PIN);
 
-  println("Ready.");
-}
-
-void printData(THPacket packet) {
-    char sentence[32];
-    sprintf(sentence, "%02X %i %s %5.1f  %3i", packet.deviceID, packet.channelNo, packet.batteryState ? " " : "L", packet.temperature, packet.humidity);
-    println(sentence);
+  display.println("Ready.");
 }
 
 unsigned long prevLocalMeasurement = 0;
 
 void processPacket(THPacket packet) {
-    printData(packet);
-    int i = findDevice(packet.deviceID);
+    // printData(packet);
+    unsigned int i = findDevice(packet.deviceID);
     if (i >= 0) {
       THDevice *d = devices[i];
       d->process(packet);
+      display.updateDeviceInfo(i, d->getLastStatus());
     } else {
-      char sentence[32];
+      char sentence[64];
       sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
-      println(String(sentence));
+      display.println(String(sentence));
       // Add a status about an unknown device
       sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
       addStatus(String("Onbekend device: " + String(sentence)));
@@ -330,6 +303,8 @@ void loop() {
     THDevice *d = devices[n];
     d->checkTimeout();
   }
+
+  display.updateWifiStatus(WiFi.status() == WL_CONNECTED, WiFi.RSSI());
 
   unsigned long current = millis();
   if ((current - last_sent) > 60000 || last_sent == 0) {

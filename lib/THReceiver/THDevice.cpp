@@ -55,8 +55,31 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::printName() {
+ String THDevice::getName() {
   return String(String(_name) + " (0x" + String(_deviceID, HEX) + ")");
+}
+
+/**
+ * Prints a display ready status for this device.
+ * 
+ * @param buf the buffer to print to 
+ */
+ String THDevice::getLastStatus() {
+  char buffer[16]; // A temporary buffer for the formatted string
+  if (_validTempsCount >= BASELINE_SIZE) {
+    char batt = ' ';
+    if (!_last.batteryState) {
+      batt = 'X';
+    }
+    sprintf(buffer, "%4s%s%5.1f", _name, batt, _last.temperature); // Use sprintf to format
+  } else {
+    String s = String("___");
+    for (int i = 0; i < _validTempsCount; i++) {
+      s.setCharAt(i, '-');
+    }
+    sprintf(buffer, "%4s   %3s", _name, s); // Use sprintf to format
+  }
+  return String(buffer);
 }
 
 /**
@@ -69,7 +92,7 @@ void THDevice::checkTimeout() {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
     if (tdiff > BASELINE_TIMEOUT) {
       // Reset the baseline on first time or timeout
-      Serial.print(printName());
+      Serial.print(getName());
       Serial.println(" timed out");
       addStatus("timeout");
       if (_validTempsCount > 0) {
@@ -197,12 +220,10 @@ THPacket THDevice::getLastRecieved() {
 
 void THDevice::addStatus(String msg) {
     if (_status.length() == 0) {
-    _status = String(printName() + ": " + msg);
+    _status = String(getName() + ": " + msg);
   } else {
     _status.concat("; " + msg);
   }
-  Serial.print("  ");
-  Serial.println(msg);
 }
 
 void THDevice::addFormattedStatus(const char *format, ...) {
