@@ -96,7 +96,7 @@ void initDevices() {
   devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
   devices[4] = new THDevice(0x53, 2, "Kldr"    ,  0  );
   devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
-  devices[6] = new THDevice(0x14, 1, "BT-G"    ,  0  );
+  devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
 }
 
 void resetStatus() {
