@@ -67,15 +67,15 @@ bool THDevice::hasID(uint8_t id) {
  String THDevice::getLastStatus() {
   String name = formatString("%4s", _name);
   String batt = " ";
-  if (_validTempsCount > 0 && !_last.batteryState) {
+  if (_validTempsCount >= BASELINE_SIZE && !_last.batteryState) {
     batt = "X";
   }
-  String value = String("___");
+  String value = String("  ___");
   if (_validTempsCount >= BASELINE_SIZE) {
     value = formatString("%5.1f", _last.temperature);
   } else {
     for (unsigned int i = 0; i < _validTempsCount; i++) {
-      value.setCharAt(i, '-');
+      value.setCharAt(i + 2, '-');
     }
   }
   return String(name + batt + value);
