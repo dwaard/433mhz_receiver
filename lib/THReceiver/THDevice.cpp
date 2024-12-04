@@ -9,6 +9,7 @@ String formatString(const char *format, ...) {
     return String(buffer);
 }
 
+
 /**
  * Constructor for this class
  * 
