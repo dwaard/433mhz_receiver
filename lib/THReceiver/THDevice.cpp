@@ -68,12 +68,12 @@ void THDevice::checkTimeout() {
   unsigned long now = millis();
   if (_lastReceived != 0) {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
-    if (tdiff > BASELINE_TIMEOUT) {
+    if (tdiff > BASELINE_TIMEOUT && _validTempsCount > 0) {
       // Reset the baseline on first time or timeout
       Serial.print(printName());
       Serial.println(" timed out");
       addStatus("timeout");
-      if (_validTempsCount > 0) {
+      if (_validTempsCount > 1) {
         _validTempsCount = 0;
         _latestTempBaselineIndex = 0;
         addStatus("baseline is reset");
