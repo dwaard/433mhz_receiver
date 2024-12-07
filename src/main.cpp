@@ -90,7 +90,7 @@ void println(String line) {
 
 void initDevices() {
   devices = new THDevice*[DEVICE_COUNT];
-  devices[0] = new THDevice(0x67, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
+  devices[0] = new THDevice(0xA0, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
   devices[1] = new THDevice(0xE5, 2, "Garg"    , -1.3);
   devices[2] = new THDevice(0x22, 3, "Kkn"    ,  0  );
   devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
