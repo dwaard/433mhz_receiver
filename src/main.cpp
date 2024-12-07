@@ -11,7 +11,6 @@ an 128x64 pixel I2C OLED display and BMP280
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <Wire.h>
-#include <Adafruit_SSD1306.h>
 #include "SparkFunBME280.h"
 // #include "WiFiUtils.h"
 #include "THReciever.h"
@@ -31,26 +30,16 @@ an 128x64 pixel I2C OLED display and BMP280
 #pragma message("Building for ESP32 platform...")
 #endif
 
+#include "THDisplay.h"
 #include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros
-
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 const char* ssid = SECRET_SSID;   // your network SSID (name) 
 const char* pass = SECRET_PASS;   // your network password
 
 WiFiClient  client;
 
-
 unsigned long myChannelNumber = SECRET_CH_ID;
 const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
-
-String lines[] = {String(""), String(""), String(""), String(""), String(""), String(""), String(""), String("")};
-unsigned int lineptr = 0;
 
 #define MY_BMP280_ADDRESS 0x76
 BME280 bmp280; //Uses default I2C address 0x76
@@ -68,25 +57,6 @@ THDevice **devices;
 
 const int DEVICE_COUNT = 7;
 
-
-void render() {
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 1);
-  display.clearDisplay();
-  // Display the lines
-  for (unsigned int index = 0; index < 8; index++) {
-    display.println(lines[(lineptr + index) % 8]);
-  }
-  display.display(); 
-}
-
-
-void println(String line) {
-  lines[lineptr] = line;
-  lineptr = (lineptr + 1) % 8;
-  render();
-}
 
 void initDevices() {
   devices = new THDevice*[DEVICE_COUNT];
@@ -141,24 +111,24 @@ const char* wl_status_to_string(wl_status_t status) {
 void connectWifi(const char* ssid, const char* pass) {
   // Connect or reconnect to WiFi
   if(WiFi.status() != WL_CONNECTED) {
-    println("SSID: " + String(ssid));
+    Display.println("SSID: " + String(ssid));
     WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
     while(WiFi.status() != WL_CONNECTED){
-      println(wl_status_to_string(WiFi.status()));
+      Display.println(wl_status_to_string(WiFi.status()));
       delay(5000);     
     } 
-    println("IP: " + WiFi.localIP().toString());
+    Display.println("IP: " + WiFi.localIP().toString());
   }
 }
 
 void initWifi(const char* ssid, const char* pass) {
-  println("Initializing WiFi...");
+  Display.println("Initializing WiFi...");
   WiFi.mode(WIFI_STA);
   connectWifi(ssid, pass);
 }
 
 void updateThingSpeak() {
-  println("Updating ThingSpeak.");
+  Display.println("Updating ThingSpeak.");
   bool hasUpdates = false;
 
   for (int n = 0; n < DEVICE_COUNT; n++) {
@@ -175,7 +145,7 @@ void updateThingSpeak() {
   }
 
   if (statusString.length() > 0) {
-    println("Sent status");
+    Display.println("Sent status");
     ThingSpeak.setStatus(statusString);
     resetStatus();
     hasUpdates = true;
@@ -187,15 +157,15 @@ void updateThingSpeak() {
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if(x == 200) {
-      println("ThingSpeak update OK.");
+      Display.println("ThingSpeak update OK.");
     }
     else {
       String msg = String("ThingSpeak error " + String(x));
-      println(msg);
+      Display.println(msg);
       addStatus(msg);
     }
   } else {
-    println("Nothing to update.");
+    Display.println("Nothing to update.");
   }
 }
 
@@ -204,7 +174,7 @@ void scan() {
   byte error, address;
   int nDevices;
 
-  println("Scanning I2C adresses");
+  Display.println("Scanning I2C adresses");
 
   nDevices = 0;
   String result = String("");
@@ -224,12 +194,12 @@ void scan() {
     }
     else if (error==4)
     {
-      println("Unknown error at address " + deviceId);
+      Display.println("Unknown error at address " + deviceId);
     }
   }
-  println(String("Found " + String(nDevices) +" devices."));
+  Display.println(String("Found " + String(nDevices) +" devices."));
   if (nDevices > 0)
-    println(result);
+    Display.println(result);
 }
 
 void startInifiniteErrorLoop() {
@@ -249,11 +219,8 @@ void setup() {
 
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+  if(!Display.begin()) {
     addStatus("Display connect fail!");
-  } else {
-    display.setRotation(2);
-    println("Display connected.");
   }
 
   // scan();
@@ -263,29 +230,29 @@ void setup() {
 
   if(bmp280.beginI2C() == false) {
     addStatus("BMP280 connect fail!");
-    println("BMP280 connect fail!");
+    Display.println("BMP280 connect fail!");
   } else {
-    println("BMP280 connected.");
+    Display.println("BMP280 connected.");
   } 
   initWifi(ssid, pass);
 
-  println("Start OTA");
+  Display.println("Start OTA");
   ArduinoOTA.begin();
 
-  println("Start ThingSpeak");
+  Display.println("Start ThingSpeak");
   ThingSpeak.begin(client);
 
-  println("Start receiver");
+  Display.println("Start receiver");
   initDevices();
   receiver.begin(THRECEIVER_PIN);
 
-  println("Ready.");
+  Display.println("Ready.");
 }
 
 void printData(THPacket packet) {
     char sentence[32];
     sprintf(sentence, "%02X %i %s %5.1f  %3i", packet.deviceID, packet.channelNo, packet.batteryState ? " " : "L", packet.temperature, packet.humidity);
-    println(sentence);
+    Display.println(sentence);
 }
 
 unsigned long prevLocalMeasurement = 0;
@@ -299,7 +266,7 @@ void processPacket(THPacket packet) {
     } else {
       char sentence[32];
       sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
-      println(String(sentence));
+      Display.println(String(sentence));
       // Add a status about an unknown device
       sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
       addStatus(String("Onbekend device: " + String(sentence)));
