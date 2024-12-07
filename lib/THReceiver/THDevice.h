@@ -19,6 +19,7 @@
       String printName();
 
       bool process(THPacket measurement);
+      String getLastStatus();
       void checkTimeout();
 
       bool hasUpdates();

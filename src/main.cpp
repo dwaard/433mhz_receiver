@@ -67,6 +67,9 @@ void initDevices() {
   devices[4] = new THDevice(0x53, 2, "Kldr"    ,  0  );
   devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
   devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
+  for (int i=0; i<DEVICE_COUNT; i++) {
+    Display.updateDeviceInfo(i, devices[i]->getLastStatus());
+  }
 }
 
 void resetStatus() {
@@ -128,7 +131,7 @@ void initWifi(const char* ssid, const char* pass) {
 }
 
 void updateThingSpeak() {
-  Display.println("Updating ThingSpeak.");
+  Display.updateThingSpeakStatus(0);
   bool hasUpdates = false;
 
   for (int n = 0; n < DEVICE_COUNT; n++) {
@@ -156,16 +159,13 @@ void updateThingSpeak() {
     connectWifi(ssid, pass);
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-    if(x == 200) {
-      Display.println("ThingSpeak update OK.");
-    }
-    else {
+    Display.updateThingSpeakStatus(x);
+    if(x != 200) {
       String msg = String("ThingSpeak error " + String(x));
-      Display.println(msg);
       addStatus(msg);
     }
   } else {
-    Display.println("Nothing to update.");
+    Display.updateThingSpeakStatus(100);
   }
 }
 
@@ -297,6 +297,8 @@ void loop() {
     THDevice *d = devices[n];
     d->checkTimeout();
   }
+
+  Display.updateWifiStatus(WiFi.status() == WL_CONNECTED, WiFi.RSSI());
 
   unsigned long current = millis();
   if ((current - last_sent) > 60000 || last_sent == 0) {
