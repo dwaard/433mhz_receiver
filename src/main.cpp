@@ -148,7 +148,6 @@ void updateThingSpeak() {
   }
 
   if (statusString.length() > 0) {
-    Display.println("Sent status");
     ThingSpeak.setStatus(statusString);
     resetStatus();
     hasUpdates = true;
@@ -223,6 +222,8 @@ void setup() {
     addStatus("Display connect fail!");
   }
 
+  initDevices();
+
   // scan();
 
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
@@ -243,32 +244,26 @@ void setup() {
   ThingSpeak.begin(client);
 
   Display.println("Start receiver");
-  initDevices();
   receiver.begin(THRECEIVER_PIN);
 
   Display.println("Ready.");
 }
 
-void printData(THPacket packet) {
-    char sentence[32];
-    sprintf(sentence, "%02X %i %s %5.1f  %3i", packet.deviceID, packet.channelNo, packet.batteryState ? " " : "L", packet.temperature, packet.humidity);
-    Display.println(sentence);
-}
-
 unsigned long prevLocalMeasurement = 0;
 
 void processPacket(THPacket packet) {
-    printData(packet);
     int i = findDevice(packet.deviceID);
     if (i >= 0) {
       THDevice *d = devices[i];
       d->process(packet);
+      Display.updateDeviceInfo(i, devices[i]->getLastStatus());
     } else {
       char sentence[32];
-      sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
-      Display.println(String(sentence));
-      // Add a status about an unknown device
+      // sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
+      // UNKNWN: 51;1;N;8.6;54
       sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
+      Display.println("UNKNOWN " + String(sentence));
+      // Add a status about an unknown device
       addStatus(String("Onbekend device: " + String(sentence)));
     }
 }

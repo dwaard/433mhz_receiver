@@ -1,29 +1,6 @@
 #include "THDisplay.h"
 
-
-static const unsigned char PROGMEM tspk_bmp[] =
-{ B01111110,
-  B01000010,
-  B01000010,
-  B01000010,
-  B01111110,
-  B00011000,
-  B00010000,
-  B00000000 };
-
-static const unsigned char PROGMEM wifi_off_bmp[] =
-{ B01010000,
-  B00100000,
-  B01010000,
-  B00000000,
-  B00000000,
-  B00000000,
-  B01010101,
-  B00000000 };
-
-
-
-
+// The variable that holds the global Display instance
 THDisplay Display;
 
 THDisplay::THDisplay() {
@@ -65,12 +42,13 @@ void THDisplay::render() {
   display.setTextColor(WHITE);
 
   unsigned int x = 0;
-  unsigned int y = 0;
+  unsigned int y = STATUS_FIRST_LINE_Y;
 
   // ThingSpeak status
   display.drawBitmap(x, y, tspk_bmp, 8, 8, 1);
   display.setCursor(x + 8, y);
   display.print(String(tspkStatus));
+  display.drawLine(0, y + 9, SCREEN_WIDTH, y + 9, 1);
 
   // WiFi status
   display.setCursor(80, y);
@@ -92,19 +70,20 @@ void THDisplay::render() {
   }
 
   x = 0;
-  y = 1;
+  y = DEVICES_FIRST_LINE_Y;
   // Device info
   for (unsigned int index = 0; index < DEVICE_ARRAY_SIZE; index++) {
     if (index == DEVICE_ARRAY_SIZE / 2) {
       x = 64;
-      y = 8;
-    } else {
-      y += 8;
+      y = DEVICES_FIRST_LINE_Y;
     }
     display.setCursor(x, y);
     display.print(devices[index]);
+    y += 8;
   }
 
+  y = LOG_FIRST_LINE_Y - 2;
+  display.drawLine(0, y, SCREEN_WIDTH, y, 1);
   display.setCursor(0, LOG_FIRST_LINE_Y);
   // Display the lines
   for (unsigned int index = 0; index < MAX_LOG_LINES; index++) {
