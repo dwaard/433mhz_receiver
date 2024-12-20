@@ -48,6 +48,8 @@
 
       void updateDeviceInfo(unsigned int index, String status);
 
+      void updateIPAdress(String ipAdress);
+
       void updateThingSpeakStatus(int status);
 
       void updateWifiStatus(bool connected, int8_t rssi);
@@ -64,6 +66,7 @@
 
       int tspkStatus = 0;
       bool wifiConnected = false;
+      String ipAddress = "";
       int8_t wifiRSSI = 0;
 
 

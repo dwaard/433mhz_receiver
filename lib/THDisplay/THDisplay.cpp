@@ -25,6 +25,11 @@ void THDisplay::updateDeviceInfo(unsigned int index, String status) {
   render();
 }
 
+void THDisplay::updateIPAdress(String updated) {
+  ipAddress = updated;
+  render();
+}
+
 void THDisplay::updateThingSpeakStatus(int status) {
   tspkStatus = status;
   render();
@@ -49,6 +54,10 @@ void THDisplay::render() {
   display.setCursor(x + 8, y);
   display.print(String(tspkStatus));
   display.drawLine(0, y + 9, SCREEN_WIDTH, y + 9, 1);
+
+  // IPAdress
+  display.setCursor(32, y);
+  display.print(ipAddress);
 
   // WiFi status
   display.setCursor(80, y);

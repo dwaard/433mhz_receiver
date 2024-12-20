@@ -11,6 +11,7 @@ an 128x64 pixel I2C OLED display and BMP280
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <Wire.h>
+#include "THDisplay.h"
 #include "SparkFunBME280.h"
 // #include "WiFiUtils.h"
 #include "THReciever.h"
@@ -30,7 +31,6 @@ an 128x64 pixel I2C OLED display and BMP280
 #pragma message("Building for ESP32 platform...")
 #endif
 
-#include "THDisplay.h"
 #include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros
 
 const char* ssid = SECRET_SSID;   // your network SSID (name) 
@@ -116,17 +116,18 @@ void connectWifi(const char* ssid, const char* pass) {
   if(WiFi.status() != WL_CONNECTED) {
     Display.println("SSID: " + String(ssid));
     WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
-    while(WiFi.status() != WL_CONNECTED){
+    while(WiFi.status() != WL_CONNECTED) {
       Display.println(wl_status_to_string(WiFi.status()));
       delay(5000);     
     } 
-    Display.println("IP: " + WiFi.localIP().toString());
+    Display.updateIPAdress(WiFi.localIP().toString());
   }
 }
 
 void initWifi(const char* ssid, const char* pass) {
   Display.println("Initializing WiFi...");
   WiFi.mode(WIFI_STA);
+  WiFi.setHostname("433MHz_receiver_1");
   connectWifi(ssid, pass);
 }
 
@@ -262,7 +263,7 @@ void processPacket(THPacket packet) {
       // sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
       // UNKNWN: 51;1;N;8.6;54
       sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
-      Display.println("UNKNOWN " + String(sentence));
+      Display.println("UNKWN " + String(sentence));
       // Add a status about an unknown device
       addStatus(String("Onbekend device: " + String(sentence)));
     }
