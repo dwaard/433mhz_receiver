@@ -64,7 +64,7 @@ void initDevices() {
   devices[1] = new THDevice(0xE5, 2, "Garg"    , -1.3);
   devices[2] = new THDevice(0x22, 3, "Kkn"    ,  0  );
   devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
-  devices[4] = new THDevice(0x53, 2, "Kldr"    ,  0  );
+  devices[4] = new THDevice(0x3C, 2, "Kldr"    ,  0  );
   devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
   devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
   for (int i=0; i<DEVICE_COUNT; i++) {
@@ -120,8 +120,8 @@ void connectWifi(const char* ssid, const char* pass) {
       Display.println(wl_status_to_string(WiFi.status()));
       delay(5000);     
     } 
-    Display.updateIPAdress(WiFi.localIP().toString());
   }
+  Display.updateIPAdress(WiFi.localIP().toString());
 }
 
 void initWifi(const char* ssid, const char* pass) {
@@ -263,7 +263,7 @@ void processPacket(THPacket packet) {
       // sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
       // UNKNWN: 51;1;N;8.6;54
       sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
-      Display.println("UNKWN " + String(sentence));
+      Display.println("UNKN " + String(sentence));
       // Add a status about an unknown device
       addStatus(String("Onbekend device: " + String(sentence)));
     }
