@@ -11,7 +11,7 @@
     public:
       static const bool DISABLE_HUMIDITY = false;
 
-      THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float correction, bool hasHumidity = true);
+      THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, uint8_t displayID, float correction, bool hasHumidity = true);
 
       bool operator == (const THDevice &other);
 
@@ -27,6 +27,8 @@
       bool hasStatusupdates();
       String getStatusupdates();
       void resetStatus();
+
+      uint8_t displayID;
 
     private:
       uint8_t _deviceID;

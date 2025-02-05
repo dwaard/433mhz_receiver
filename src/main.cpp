@@ -57,18 +57,17 @@ THDevice **devices;
 
 const int DEVICE_COUNT = 7;
 
-
 void initDevices() {
   devices = new THDevice*[DEVICE_COUNT];
-  devices[0] = new THDevice(0xA0, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
-  devices[1] = new THDevice(0xE5, 2, "Garg"    , -1.3);
-  devices[2] = new THDevice(0x22, 3, "Kkn"    ,  0  );
-  devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
-  devices[4] = new THDevice(0x3C, 2, "Kldr"    ,  0  );
-  devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
-  devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
+  devices[0] = new THDevice(0xA0, 1, "BT-S", 5,  0, THDevice::DISABLE_HUMIDITY);
+  devices[1] = new THDevice(0xE5, 2, "Garg", 6, -1.3);
+  devices[2] = new THDevice(0x22, 3, "Kkn" , 1,  0  );
+  devices[3] = new THDevice(0xD7, 1, "Slkr", 2,  0, THDevice::DISABLE_HUMIDITY);
+  devices[4] = new THDevice(0x3C, 2, "Kldr", 3,  0  );
+  devices[5] = new THDevice(0x00, 9, "Kntr", 0,  0  );
+  devices[6] = new THDevice(0x16, 1, "BT-G", 4,  0  );
   for (int i=0; i<DEVICE_COUNT; i++) {
-    Display.updateDeviceInfo(i, devices[i]->getLastStatus());
+    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
   }
 }
 
@@ -257,7 +256,7 @@ void processPacket(THPacket packet) {
     if (i >= 0) {
       THDevice *d = devices[i];
       d->process(packet);
-      Display.updateDeviceInfo(i, devices[i]->getLastStatus());
+      Display.updateDeviceInfo(d->displayID, d->getLastStatus());
     } else {
       char sentence[32];
       // sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);

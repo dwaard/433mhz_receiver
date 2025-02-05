@@ -24,8 +24,9 @@ String formatString(const char *format, ...) {
  * @param hasHumidity `false` to disable the humidity values (default `true`)
  */
 THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, 
-                    float correction, bool hasHumidity) {
+                    uint8_t displayID, float correction, bool hasHumidity) {
   _deviceID = deviceID;
+  this->displayID = displayID;
   _channelNo = channelNo;
   _name = name;
   _correction = correction;
