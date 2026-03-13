@@ -6,12 +6,109 @@
   #include <Arduino.h>  
   #include <stdio.h>
   #include <cstdlib>
+  #include "Logger.h"
 
+  /**
+   * Struct representing the configuration of a device. This is used to easily 
+   * load and save device configurations to and from EEPROM. It has the following 
+   * attributes:
+   * 
+   * The `deviceID` is a unique identifier for each device. It is used to match 
+   * incoming measurements to the correct device. Normally a number between 0 and 
+   * 0xFF. This is selected at random each time a sensor is turned on.
+   * 
+   * A short name for this device. This is used for status updates and logging. 
+   * It should be no longer than 4 characters to save space in the EEPROM.
+   * 
+   * The `settings` byte is used to store multiple boolean and small integer values 
+   * in a compact way. Bit 0 (the least significant bit) is used to indicate whether 
+   * the device has humidity measurements (1) or not (0). Bits 1 and 2 are used 
+   * to store the channel number (1, 2, or 4). The remaining bits (3-7) are reserved 
+   * for future use. This allows us to store both the humidity setting and the 
+   * channel number in a single byte, saving space in the EEPROM.  
+   * 
+   * The `correction` value is a simple calibration feature. The correction value 
+   * is added to the received temperature to correct for any systematic errors 
+   * in the sensor. This can be used to calibrate the sensor against a known accurate 
+   * thermometer. The correction value can be positive or negative and is stored 
+   * in steps of 0.1°C.
+   * 
+   * The `maxValidDelta` is used in the baseline temperature validator. When a 
+   * new temperature measurement is received, it is compared to the previous valid 
+   * temperature. If the absolute difference between the two temperatures exceeds 
+   * the max valid delta, the new measurement is considered invalid and is not 
+   * added to the baseline. This helps to filter out outliers and sudden changes 
+   * in temperature that are unlikely to be real. The max valid delta is stored 
+   * in steps of 0.1°C and can be set to a value between 0 and 255 (which 
+   * corresponds to a maximum valid temperature difference of 25.5°C).
+   * 
+   * The `maxValidInterval` is used to determine if a device has timed out. If the 
+   * time since the last valid measurement exceeds this interval, the device is 
+   * considered timed out. This is useful to detect when a sensor has stopped 
+   * working or is out of range. The max valid interval is stored in minutes and 
+   * can be set to a value between 0 and 255.
+   */
+  struct DeviceConfig {
+    /**
+     * Unique identifier for each device. 
+     */
+    uint8_t deviceID;
+
+    /**
+     * A short name for this device.
+     */
+    char name[5];
+
+    /**
+     * The settings byte
+     */
+    uint8_t settings; // 0=hasHumidity 1-2=channel 3=7=reserved
+
+    /**
+     * A simple calibration feature. 
+     */
+    int8_t correction;
+
+    /**
+     * The max valid delta is used in the baseline temperature validator. 
+     */
+    uint8_t maxValidDelta; // Max valid temp difference * 10C (default: 7)
+    
+    /**
+     * The max valid interval is used to determine if a device has timed out. 
+     */
+    uint8_t maxValidInterval; // Max valid time interval in minutes (default: 15)
+
+  };
+
+  /**
+   * Class representing a temperature and humidity sensor. It stores the latest 
+   * measurement and some metadata about the device. It also has some basic 
+   * validation and status update features.
+   */
   class THDevice {
     public:
       static const bool DISABLE_HUMIDITY = false;
 
-      THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, float correction, bool hasHumidity = true);
+      /**
+       * Constructor for this class. Some sensors do not send proper humidity 
+       * values. To avoid useless statusupdates, that value can be disabled.
+       */
+      THDevice(
+        uint8_t deviceID, 
+        uint8_t channelNo, 
+        const char *name, 
+        float correction, 
+        bool hasHumidity = true);
+
+      THDevice(DeviceConfig config) 
+        : THDevice(
+            config.deviceID, 
+            (config.settings >> 1) & 0b11, 
+            config.name, 
+            config.correction / 10.0, 
+            (config.settings & 0b1) == 1
+        ) {} ;
 
       bool operator == (const THDevice &other);
 

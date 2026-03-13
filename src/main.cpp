@@ -13,7 +13,18 @@ an 128x64 pixel I2C OLED display and BMP280
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
 #include "SparkFunBME280.h"
-// #include "WiFiUtils.h"
+
+#include "Logger.h"
+#include "channels/TelnetChannel.h"
+// Enable or disable serial debugging. Set to 1 to enable, 0 to disable. 
+#define SERIAL_DEBUGGING_ENABLED 1
+#define SERIAL_DEBUGGING_LEVEL Logger::TRACE
+
+#ifdef SERIAL_DEBUGGING_ENABLED
+  #pragma message("Serial debugging is ENABLED. This may impact performance. Set SERIAL_DEBUGGING_ENABLED to 0 to disable.")
+  #include "channels/SerialChannel.h"
+#endif
+
 #include "THReciever.h"
 #include "THDevice.h"
 #include "secrets.h"
@@ -45,6 +56,9 @@ const char* pass = SECRET_PASS;   // your network password
 
 WiFiClient  client;
 
+WiFiServer telnetServer(23);
+WiFiClient telnetClient;
+TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
 
 unsigned long myChannelNumber = SECRET_CH_ID;
 const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
@@ -89,6 +103,7 @@ void println(String line) {
 }
 
 void initDevices() {
+  Logging.trace("SETUP", "Initializing devices...");
   devices = new THDevice*[DEVICE_COUNT];
   devices[0] = new THDevice(0xA0, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
   devices[1] = new THDevice(0xE5, 2, "Garg"    , -1.3);
@@ -141,23 +156,28 @@ const char* wl_status_to_string(wl_status_t status) {
 void connectWifi(const char* ssid, const char* pass) {
   // Connect or reconnect to WiFi
   if(WiFi.status() != WL_CONNECTED) {
+    Logging.warning("WIFI", wl_status_to_string(WiFi.status()));
+    Logging.debug("WIFI", "(Re)connecting to SSID: " + String(ssid));
     println("SSID: " + String(ssid));
     WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
     while(WiFi.status() != WL_CONNECTED){
       println(wl_status_to_string(WiFi.status()));
       delay(5000);     
     } 
+    Logging.info("WIFI", "Connected to IP: " + WiFi.localIP().toString());
     println("IP: " + WiFi.localIP().toString());
   }
 }
 
 void initWifi(const char* ssid, const char* pass) {
+  Logging.trace("SETUP", "Connecting to WiFi SSID: " + String(ssid));
   println("Initializing WiFi...");
   WiFi.mode(WIFI_STA);
   connectWifi(ssid, pass);
 }
 
 void updateThingSpeak() {
+  Logging.trace("THINGSPEAK", "Updating ThingSpeak channel...");
   println("Updating ThingSpeak.");
   bool hasUpdates = false;
 
@@ -175,7 +195,7 @@ void updateThingSpeak() {
   }
 
   if (statusString.length() > 0) {
-    println("Sent status");
+    Logging.trace("THINGSPEAK", "Sending status update. Status: " + statusString);
     ThingSpeak.setStatus(statusString);
     resetStatus();
     hasUpdates = true;
@@ -187,14 +207,17 @@ void updateThingSpeak() {
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if(x == 200) {
+      Logging.info("THINGSPEAK", "ThingSpeak update successful.");
       println("ThingSpeak update OK.");
     }
     else {
       String msg = String("ThingSpeak error " + String(x));
+      Logging.error("THINGSPEAK", msg);
       println(msg);
       addStatus(msg);
     }
   } else {
+    Logging.trace("THINGSPEAK", "No updates to send to ThingSpeak.");
     println("Nothing to update.");
   }
 }
@@ -204,7 +227,7 @@ void scan() {
   byte error, address;
   int nDevices;
 
-  println("Scanning I2C adresses");
+  Logging.trace("I2C", "Scanning I2C addresses");
 
   nDevices = 0;
   String result = String("");
@@ -224,15 +247,20 @@ void scan() {
     }
     else if (error==4)
     {
+      Logging.error("I2C", "Unknown error at address " + deviceId);
       println("Unknown error at address " + deviceId);
     }
   }
+  Logging.info("I2C", "Scan completed. Found " + String(nDevices) + " device(s).");
   println(String("Found " + String(nDevices) +" devices."));
-  if (nDevices > 0)
+  if (nDevices > 0) {
     println(result);
+    Logging.info("I2C", "Devices found at addresses: " + result);
+  }
 }
 
 void startInifiniteErrorLoop() {
+  Logging.critical("SYSTEM", "Entering infinite error loop. System is not functional.");
   initWifi(ssid, pass);
   ArduinoOTA.begin();
   while (1) { // Don't proceed, loop forever. Everything else depends upon it
@@ -242,17 +270,34 @@ void startInifiniteErrorLoop() {
 }
 
 void setup() {
-  // put your setup code here, to run once:
-  // Serial.begin(115200);
+
+  #ifdef SERIAL_DEBUGGING_ENABLED
+    // Setting up serial logging
+    Serial.begin(115200);
+    Logging.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
+  #endif
+  initWifi(ssid, pass);
+
+  // Setting up telnet logging
+  telnetServer.begin();
+  Logging.addChannel(&telnetChannel);
+
+  Logging.trace("SETUP", "Starting OTA service...");
+  println("Start OTA");
+  ArduinoOTA.begin();
+
   resetStatus();
+  Logging.trace("SETUP", "Setup started. Initializing receiver and sensors...");
   addStatus("Receiver opgestart");
 
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Logging.error("DISPLAY", "SSD1306 allocation failed");
     addStatus("Display connect fail!");
   } else {
     display.setRotation(2);
+    Logging.trace("DISPLAY", "SSD1306 display initialized successfully.");
     println("Display connected.");
   }
 
@@ -262,23 +307,24 @@ void setup() {
   //The I2C address must be set before .begin() otherwise the cal values will fail to load.
 
   if(bmp280.beginI2C() == false) {
+    Logging.error("BMP280", "BMP280 initialization failed. Check wiring and I2C address.");
     addStatus("BMP280 connect fail!");
     println("BMP280 connect fail!");
   } else {
+    Logging.trace("BMP280", "BMP280 connected successfully.");
     println("BMP280 connected.");
   } 
-  initWifi(ssid, pass);
 
-  println("Start OTA");
-  ArduinoOTA.begin();
-
+  Logging.trace("SETUP", "Starting ThingSpeak service...");
   println("Start ThingSpeak");
   ThingSpeak.begin(client);
 
+  Logging.trace("SETUP", "Initializing receiver...");
   println("Start receiver");
   initDevices();
   receiver.begin(THRECEIVER_PIN);
 
+  Logging.info("SETUP", "Setup completed successfully. System is ready.");
   println("Ready.");
 }
 
@@ -286,6 +332,7 @@ void printData(THPacket packet) {
     char sentence[32];
     sprintf(sentence, "%02X %i %s %5.1f  %3i", packet.deviceID, packet.channelNo, packet.batteryState ? " " : "L", packet.temperature, packet.humidity);
     println(sentence);
+    Logging.trace("RECEIVER", "Received packet - Device ID: 0x" + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) + "%");
 }
 
 unsigned long prevLocalMeasurement = 0;
@@ -303,6 +350,7 @@ void processPacket(THPacket packet) {
       // Add a status about an unknown device
       sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
       addStatus(String("Onbekend device: " + String(sentence)));
+      Logging.warning("RECEIVER", "Received packet from unknown device. Device ID: 0x" + String(packet.deviceID, HEX) + ", Temperature: " + String(packet.temperature));
     }
 }
 

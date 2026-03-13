@@ -70,12 +70,12 @@ void THDevice::checkTimeout() {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
     if (tdiff > BASELINE_TIMEOUT && _validTempsCount > 0) {
       // Reset the baseline on first time or timeout
-      Serial.print(printName());
-      Serial.println(" timed out");
+      Logging.warning(printName(), "Timed out. Time since last valid packet: " + String(tdiff) + " ms");
       addStatus("timeout");
       if (_validTempsCount > 1) {
         _validTempsCount = 0;
         _latestTempBaselineIndex = 0;
+        Logging.info(printName(),  "Baseline reset due to timeout.");
         addStatus("baseline is reset");
       }
       _lastReceived = now;
@@ -91,11 +91,13 @@ void THDevice::checkTimeout() {
  */
 bool THDevice::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
+    Logging.warning(printName(), "Invalid device ID. Expected: 0x" + String(_deviceID, HEX) + ", got: 0x" + String(packet.deviceID, HEX));
     addFormattedStatus("ongeldig deviceID: 0x%X", packet.deviceID);
     return false;
   }
   if (packet.channelNo > _channelNo) {
     if (packet.channelNo != _prevUpdateChannel) {
+      Logging.warning(printName(), "Invalid channel no.: " + String(packet.channelNo));
       addFormattedStatus("ongeldig channel no.: %i", packet.channelNo);
       _prevUpdateChannel = packet.channelNo;
     }
@@ -103,6 +105,7 @@ bool THDevice::isValid(THPacket packet) {
   }
   if (_hasHumidity && packet.humidity > 100) {
     if (packet.humidity != _prevUpdateHum) {
+      Logging.warning(printName(), "Invalid humidity. Humidity: " + String(packet.humidity) + "%");
       addFormattedStatus("ongeldige humidity: %i", packet.humidity);
       _prevUpdateHum = packet.humidity;
     }
@@ -110,10 +113,12 @@ bool THDevice::isValid(THPacket packet) {
   }
   if (packet.temperature < -50 || packet.temperature > 50) {
     addFormattedStatus("ongeldige temp.: %.1f", packet.temperature);
+    Logging.warning(printName(), "Invalid temperature. Temperature: " + String(packet.temperature) + "°C");
     return false;
   }
   // The baseline temperature validator
   if (_validTempsCount == 0) {
+    Logging.trace(printName(), "No baseline yet. Accepting first temp: " + String(packet.temperature) + "°C");
     addStatus("start baseline");
   } else {
     // Compute the diff between the latest and previous temp.
@@ -121,6 +126,7 @@ bool THDevice::isValid(THPacket packet) {
     float diff = abs(prevTemp - packet.temperature);
     // Serial.println("  abs(" + String(prevTemp) + " - " + String(packet.temperature) + ") = " + String(diff));
     if (diff > BASELINE_TEMP_THRESHOLD) {
+      Logging.debug(printName(), "Temperature change is too large. Latest temp: " + String(packet.temperature) + "°C, previous temp: " + String(prevTemp) + "°C, diff: " + String(diff) + "°C");
       addFormattedStatus("temp.verandering te groot: %.1f", diff);
       if (_validTempsCount >= BASELINE_SIZE) {
         // return false when the baseline is filled
@@ -143,6 +149,8 @@ bool THDevice::isValid(THPacket packet) {
     return false;
   }
   if (_validTempsCount == BASELINE_SIZE) {
+    Logging.info(printName(),"Baseline is ready. Baseline temps: " 
+      + String(_baselineTemps[0]) + ", " + String(_baselineTemps[1]) + ", " + String(_baselineTemps[2]));
     addStatus("baseline klaar");
   }
   return true;
@@ -165,6 +173,7 @@ bool THDevice::process(THPacket packet) {
     unsigned long now = millis();
     unsigned long diff = now - _lastBatteryNotification;
     if (diff > BATTERY_NOTIFICATION_INTERVAL) {
+      Logging.warning(printName(), "Low battery. Last battery notification was " + String(diff) + " ms ago.");
       addStatus("batterij laag");
       _lastBatteryNotification = now;
     }
