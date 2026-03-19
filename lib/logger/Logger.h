@@ -25,6 +25,13 @@ public:
     static const uint8_t ERROR = 40; ///< Error messages for recoverable failures
     static const uint8_t CRITICAL = 50; ///< Critical messages for severe failures
 
+    static const uint16_t CODE_CHAR_ARRAY = 0;
+    static const uint16_t CODE_STRING = 1;
+    static const uint16_t CODE_INT = 2;
+    static const uint16_t CODE_FLOAT = 3;
+    static const uint16_t CODE_DOUBLE = 4;
+    static const uint16_t CODE_BOOL = 5;
+
     /**
      * @brief Constructor initializing the logger with default MillisTimestampProvider
      */
@@ -60,14 +67,8 @@ public:
      * @param event The LogEvent to be processed by each channel
      */
     void log(const LogEvent& event) {
-        // When there are no channels, just print to Serial as a fallback
-        if (channels.empty()) {
-            Serial.print("[FALLBACK] [");
-            Serial.print(event.module);
-            Serial.print("] ");
-            Serial.println(event.message);
-            return;
-        } else {
+        // When there are channels, pass the event to each one
+        if (!channels.empty()) {
             for (auto channel : channels) {
                 channel->handle(event);
             }
@@ -77,55 +78,104 @@ public:
     /**
      * @brief Logs a trace-level message with module identification
      * @param module The source module or component name
+     * @param data The trace message content
+     * @param code Optional code for categorizing the log event (default: 0)
+     */
+    void trace(void* data, u_int16_t code = 0) {
+        log({timestampProvider->getTimestamp(), Logger::TRACE, code, data});
+    }
+
+    /**
+     * @brief Logs a trace-level message with module identification
      * @param message The trace message content
      */
-    void trace(const String& module, const String& message) {
-        log({timestampProvider->getTimestamp(), Logger::TRACE, module, message});
+    void trace(String message) {
+        trace((void*)message.c_str());
     }
 
     /**
      * @brief Logs a debug-level message with module identification
-     * @param module The source module or component name
+     * @param data The debug message content
+     * @param code Optional code for categorizing the log event (default: 0)
+     */
+    void debug(void* data, u_int16_t code = 0) {
+        log({timestampProvider->getTimestamp(), Logger::DEBUG, code, data});
+    }
+
+    /**
+     * @brief Logs a debug-level message with module identification
      * @param message The debug message content
      */
-    void debug(const String& module, const String& message) {
-        log({timestampProvider->getTimestamp(), Logger::DEBUG, module, message});
+    void debug(String message) {
+        debug((void*)message.c_str());
     }
 
     /**
      * @brief Logs an info-level message with module identification
-     * @param module The source module or component name
-     * @param message The informational message content
+     * @param data The informational message content
+     * @param code Optional code for categorizing the log event (default: 0)
      */
-    void info(const String& module, const String& message) {
-        log({timestampProvider->getTimestamp(), Logger::INFO, module, message});
+    void info(void* data, u_int16_t code = 0) {
+        log({timestampProvider->getTimestamp(), Logger::INFO, code, data});
+    }
+
+    /**
+     * @brief Logs an info-level message with module identification
+     * @param message The info message content
+     */
+    void info(String message) {
+        info((void*)message.c_str());
     }
 
     /**
      * @brief Logs a warning-level message with module identification
-     * @param module The source module or component name
+     * @param data The warning message content
+     * @param code Optional code for categorizing the log event (default: 0)
+     */
+    void warning(void* data, u_int16_t code = 0) {
+        log({timestampProvider->getTimestamp(), Logger::WARNING, code, data});
+    }
+
+    /**
+     * @brief Logs a warning-level message with module identification
      * @param message The warning message content
      */
-    void warning(const String& module, const String& message) {
-        log({timestampProvider->getTimestamp(), Logger::WARNING, module, message});
+    void warning(String message) {
+        warning((void*)message.c_str());
     }
 
     /**
      * @brief Logs an error-level message with module identification
-     * @param module The source module or component name
+     * @param data The error message content
+     * @param code Optional code for categorizing the log event (default: 0)
+     */
+    void error(void* data, u_int16_t code = 0) {
+        log({timestampProvider->getTimestamp(), Logger::ERROR, code, data});
+    }
+
+    /**
+     * @brief Logs an error-level message with module identification
      * @param message The error message content
      */
-    void error(const String& module, const String& message) {
-        log({timestampProvider->getTimestamp(), Logger::ERROR, module, message});
+    void error(String message) {
+        error((void*)message.c_str());
     }
 
     /**
      * @brief Logs a critical-level message with module identification
-     * @param module The source module or component name
+     * @param data The critical message content
+     * @param code Optional code for categorizing the log event (default: 0)
+     */
+    void critical(void* data, u_int16_t code = 0) {
+        log({timestampProvider->getTimestamp(), Logger::CRITICAL, code, data});
+    }
+
+    /**
+     * @brief Logs a critical-level message with module identification
      * @param message The critical message content
      */
-    void critical(const String& module, const String& message) {
-        log({timestampProvider->getTimestamp(), Logger::CRITICAL, module, message});
+    void critical(String message) {
+        critical((void*)message.c_str());
     }
 
 private:
@@ -137,6 +187,6 @@ private:
 /**
  * @brief Global logger instance for application-wide logging
  */
-extern Logger Logging;
+extern Logger Log;
 
 #endif

@@ -54,6 +54,26 @@ protected:
      */
     const char* getLevelStr(const LogEvent& event);
 
+    /**
+     * @brief Helper method to convert LogEvent data to a string representation
+     * @param event The LogEvent containing the data
+     * @return A String containing the formatted data
+     */
+    String getDataStr(const LogEvent& event);
+
+    /**
+     * @brief Helper method to format a LogEvent into a human-readable string
+     * @param event The LogEvent to format
+     */
+    String formatEventDefault(const LogEvent& event) {
+        String result = "[" + String(getLevelStr(event)) + "] [" + String(event.timestamp) + "] ";
+        if (event.code != 100) {
+            result += "(" + String(event.code) + ")";
+        }
+        result += " " + getDataStr(event);
+        return result;
+    }
+
     uint8_t logLevel;  ///< Current log level threshold
 };
 

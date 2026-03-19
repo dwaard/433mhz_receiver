@@ -23,7 +23,7 @@ public:
      * @param level The minimum LogLevel to process
      * @param callback The function to invoke when a log event is processed
      */
-    CallbackChannel(Logger::LogLevel level, Callback callback)
+    CallbackChannel(uint8_t level, Callback callback)
         : LogChannel(level), callback(callback) {}
 
 protected:

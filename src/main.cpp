@@ -16,13 +16,16 @@ an 128x64 pixel I2C OLED display and BMP280
 
 #include "Logger.h"
 #include "channels/TelnetChannel.h"
+#include "DisplayLogChannel.h"
+#include "ThingSpeakLogChannel.h"
+
 // Enable or disable serial debugging. Set to 1 to enable, 0 to disable. 
 #define SERIAL_DEBUGGING_ENABLED 1
-#define SERIAL_DEBUGGING_LEVEL Logger::TRACE
-
 #ifdef SERIAL_DEBUGGING_ENABLED
+  #define SERIAL_DEBUGGING_LEVEL Logger::TRACE
   #pragma message("Serial debugging is ENABLED. This may impact performance. Set SERIAL_DEBUGGING_ENABLED to 0 to disable.")
   #include "channels/SerialChannel.h"
+
 #endif
 
 #include "THReciever.h"
@@ -54,16 +57,20 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 const char* ssid = SECRET_SSID;   // your network SSID (name) 
 const char* pass = SECRET_PASS;   // your network password
 
+int status = WL_IDLE_STATUS;     // the WiFi radio's status
 WiFiClient  client;
 
-WiFiServer telnetServer(23);
-WiFiClient telnetClient;
-TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
+#define TELNET_DEBUGGING_ENABLED 0
+#ifdef TELNET_DEBUGGING_ENABLED
+  WiFiServer telnetServer(23);
+  WiFiClient telnetClient;
+  TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
+#endif
 
 unsigned long myChannelNumber = SECRET_CH_ID;
 const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
 
-String lines[] = {String(""), String(""), String(""), String(""), String(""), String(""), String(""), String("")};
+String lines[] = {String(""), String(""), String(""), String(""), String("")};
 unsigned int lineptr = 0;
 
 #define MY_BMP280_ADDRESS 0x76
@@ -74,14 +81,12 @@ THReceiver receiver = THReceiver();
 
 unsigned long last_sent = 0;
 
-const int MAX_STATUS_SIZE = 2000;
-char* status = new char[MAX_STATUS_SIZE];
-String statusString;
-
 THDevice **devices;
 
 const int DEVICE_COUNT = 7;
 
+DisplayLogChannel displayLogChannel(Logger::DEBUG);
+ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
 
 void render() {
   display.setTextSize(1);
@@ -89,8 +94,11 @@ void render() {
   display.setCursor(0, 1);
   display.clearDisplay();
   // Display the lines
-  for (unsigned int index = 0; index < 8; index++) {
+  for (unsigned int index = 0; index < 5; index++) {
     display.println(lines[(lineptr + index) % 8]);
+  }
+  for (unsigned int index = 0; index < 3; index++) {
+    display.println(displayLogChannel.getRecent(index));
   }
   display.display(); 
 }
@@ -103,7 +111,7 @@ void println(String line) {
 }
 
 void initDevices() {
-  Logging.trace("SETUP", "Initializing devices...");
+  Log.trace("Creating THDevice instances for each known device");
   devices = new THDevice*[DEVICE_COUNT];
   devices[0] = new THDevice(0xA0, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
   devices[1] = new THDevice(0xE5, 2, "Garg"    , -1.3);
@@ -112,18 +120,6 @@ void initDevices() {
   devices[4] = new THDevice(0x53, 2, "Kldr"    ,  0  );
   devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
   devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
-}
-
-void resetStatus() {
-  statusString = String("");
-}
-
-void addStatus(String msg) {
-  if (statusString.length() == 0) {
-    statusString = String(msg);
-  } else {
-    statusString.concat(" | " + msg);
-  }
 }
 
 int findDevice(uint8_t deviceID) {
@@ -136,16 +132,16 @@ int findDevice(uint8_t deviceID) {
 }
 
 const char* wl_status_to_string(wl_status_t status) {
-  switch (status) {
-    case WL_NO_SHIELD: return "WL_NO_SHIELD";
-    case WL_IDLE_STATUS: return "WL_IDLE_STATUS";
-    case WL_NO_SSID_AVAIL: return "WL_NO_SSID_AVAIL";
-    case WL_SCAN_COMPLETED: return "WL_SCAN_COMPLETED";
-    case WL_CONNECTED: return "WL_CONNECTED";
-    case WL_CONNECT_FAILED: return "WL_CONNECT_FAILED";
-    case WL_CONNECTION_LOST: return "WL_CONNECTION_LOST";
-    case WL_WRONG_PASSWORD: return "WL_WRONG_PASSWORD";
-    case WL_DISCONNECTED: return "WL_DISCONNECTED";
+  switch (status) {               //"This string has exactly 32 chars"
+    case WL_NO_SHIELD:       return "WiFi radio is not available";
+    case WL_IDLE_STATUS:     return "WiFi Radio in in idle";
+    case WL_NO_SSID_AVAIL:   return "No SSIDs available";
+    case WL_SCAN_COMPLETED:  return "WiFi scan completed";
+    case WL_CONNECTED:       return "Connected to WiFi";
+    case WL_CONNECT_FAILED:  return "Connection to WiFi failed";
+    case WL_CONNECTION_LOST: return "WiFi connection lost";
+    case WL_WRONG_PASSWORD:  return "Wrong password";
+    case WL_DISCONNECTED:    return "Disconnected from WiFi";
   }
   // Create a static buffer to hold the status value
   static char buffer[32];
@@ -154,31 +150,36 @@ const char* wl_status_to_string(wl_status_t status) {
 }
 
 void connectWifi(const char* ssid, const char* pass) {
-  // Connect or reconnect to WiFi
-  if(WiFi.status() != WL_CONNECTED) {
-    Logging.warning("WIFI", wl_status_to_string(WiFi.status()));
-    Logging.debug("WIFI", "(Re)connecting to SSID: " + String(ssid));
-    println("SSID: " + String(ssid));
-    WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
-    while(WiFi.status() != WL_CONNECTED){
-      println(wl_status_to_string(WiFi.status()));
-      delay(5000);     
-    } 
-    Logging.info("WIFI", "Connected to IP: " + WiFi.localIP().toString());
-    println("IP: " + WiFi.localIP().toString());
+  if (status == WL_CONNECTED) {
+    return;
   }
-}
-
-void initWifi(const char* ssid, const char* pass) {
-  Logging.trace("SETUP", "Connecting to WiFi SSID: " + String(ssid));
-  println("Initializing WiFi...");
-  WiFi.mode(WIFI_STA);
-  connectWifi(ssid, pass);
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Log.critical("No WiFi module! System HALT");
+    // don't continue
+    while (1) { // Don't proceed, loop forever. Everything else depends upon it
+      delay(100);
+    }
+  }
+  // Connect or reconnect to WiFi
+  if (status == WL_IDLE_STATUS) {
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "Init Wifi: %s", ssid);
+    Log.info(buffer);
+    WiFi.mode(WIFI_STA);
+  }
+  status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
+  while(WiFi.status() != WL_CONNECTED) {
+    Log.warning("Conn: " + String(wl_status_to_string(WiFi.status())));
+    delay(5000);     
+  }
+  char buffer[32];
+  snprintf(buffer, sizeof(buffer), "IP: %s", WiFi.localIP().toString().c_str());
+  Log.info("WiFi connection successful");
 }
 
 void updateThingSpeak() {
-  Logging.trace("THINGSPEAK", "Updating ThingSpeak channel...");
-  println("Updating ThingSpeak.");
+  Log.trace("Updating ThingSpeak channel...");
   bool hasUpdates = false;
 
   for (int n = 0; n < DEVICE_COUNT; n++) {
@@ -188,17 +189,11 @@ void updateThingSpeak() {
       ThingSpeak.setField(n + 1, m.temperature);
       hasUpdates = true;
     }
-    if (d->hasStatusupdates()) {
-      addStatus(d->getStatusupdates());
-      d->resetStatus();
+    // TODO add updates from the ThingSpeakChannel
+    if (thingSpeakLogChannel.hasStatusToSend()) {
+      ThingSpeak.setStatus(thingSpeakLogChannel.getStatusForSending());
+      hasUpdates = true;
     }
-  }
-
-  if (statusString.length() > 0) {
-    Logging.trace("THINGSPEAK", "Sending status update. Status: " + statusString);
-    ThingSpeak.setStatus(statusString);
-    resetStatus();
-    hasUpdates = true;
   }
   
   if (hasUpdates) {
@@ -207,61 +202,20 @@ void updateThingSpeak() {
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if(x == 200) {
-      Logging.info("THINGSPEAK", "ThingSpeak update successful.");
-      println("ThingSpeak update OK.");
+      Log.info("ThingSpeak update successful.");
     }
     else {
-      String msg = String("ThingSpeak error " + String(x));
-      Logging.error("THINGSPEAK", msg);
-      println(msg);
-      addStatus(msg);
+      Log.error("THINGSPEAK" + String("ThingSpeak error " + String(x)));
     }
   } else {
-    Logging.trace("THINGSPEAK", "No updates to send to ThingSpeak.");
+    Log.trace("No updates to send to ThingSpeak.");
     println("Nothing to update.");
   }
 }
 
-
-void scan() {
-  byte error, address;
-  int nDevices;
-
-  Logging.trace("I2C", "Scanning I2C addresses");
-
-  nDevices = 0;
-  String result = String("");
-  for(address = 1; address < 127; address++ )
-  {
-    // The i2c_scanner uses the return value of
-    // the Write.endTransmisstion to see if
-    // a device did acknowledge to the address.
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    String deviceId = String("0x" + String(address<16 ? "0" : "") + String(address, HEX));
-    if (error == 0)
-    {
-      result.concat(String(deviceId + " "));
-      nDevices++;
-    }
-    else if (error==4)
-    {
-      Logging.error("I2C", "Unknown error at address " + deviceId);
-      println("Unknown error at address " + deviceId);
-    }
-  }
-  Logging.info("I2C", "Scan completed. Found " + String(nDevices) + " device(s).");
-  println(String("Found " + String(nDevices) +" devices."));
-  if (nDevices > 0) {
-    println(result);
-    Logging.info("I2C", "Devices found at addresses: " + result);
-  }
-}
-
 void startInifiniteErrorLoop() {
-  Logging.critical("SYSTEM", "Entering infinite error loop. System is not functional.");
-  initWifi(ssid, pass);
+  Log.critical("Entering infinite OTA error loop");
+  connectWifi(ssid, pass);
   ArduinoOTA.begin();
   while (1) { // Don't proceed, loop forever. Everything else depends upon it
     ArduinoOTA.handle();
@@ -269,76 +223,87 @@ void startInifiniteErrorLoop() {
   }
 }
 
-void setup() {
+#ifdef TELNET_DEBUGGING_ENABLED
+bool handleTelnetConnections() {
+  // Check for telnet clients
+  if (telnetServer.hasClient()) {
+      telnetClient = telnetServer.accept();
+      Log.trace("Telnet log client accepted");
+      return true;
+  }
+  return false;
+}
+#endif
 
+/**
+ * @brief The setup function runs once when the device is powered on or reset. 
+ * It initializes the system, connects to WiFi, sets up the display, sensors, 
+ * and logging channels, and prepares the device for operation. If any critical 
+ * initialization step fails (like WiFi connection or sensor setup), it logs the 
+ * error and enters an infinite loop to prevent further execution.
+ */
+void setup() {
   #ifdef SERIAL_DEBUGGING_ENABLED
     // Setting up serial logging
     Serial.begin(115200);
-    Logging.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
+    Log.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
   #endif
-  initWifi(ssid, pass);
-
-  // Setting up telnet logging
-  telnetServer.begin();
-  Logging.addChannel(&telnetChannel);
-
-  Logging.trace("SETUP", "Starting OTA service...");
-  println("Start OTA");
-  ArduinoOTA.begin();
-
-  resetStatus();
-  Logging.trace("SETUP", "Setup started. Initializing receiver and sensors...");
-  addStatus("Receiver opgestart");
 
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Logging.error("DISPLAY", "SSD1306 allocation failed");
-    addStatus("Display connect fail!");
+    Log.error("SSD1306 allocation failed");
   } else {
     display.setRotation(2);
-    Logging.trace("DISPLAY", "SSD1306 display initialized successfully.");
-    println("Display connected.");
+    Log.addChannel(&displayLogChannel);
+    Log.trace("SSD1306 allocation successful");
   }
 
-  // scan();
+  connectWifi(ssid, pass);
+  #ifdef TELNET_DEBUGGING_ENABLED
+    // Setting up telnet logging
+    telnetServer.begin();
+    Log.addChannel(&telnetChannel);
+    int timeout = 0; bool connected = false;
+    while (!connected && timeout < 100)
+    {
+      connected = handleTelnetConnections();
+      timeout++;
+      delay(100);
+    }
+  #endif
 
+  Log.trace("Starting OTA service...");
+  ArduinoOTA.begin();
+
+  Log.trace("Initializing receiver and sensors...");
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
   //The I2C address must be set before .begin() otherwise the cal values will fail to load.
 
   if(bmp280.beginI2C() == false) {
-    Logging.error("BMP280", "BMP280 initialization failed. Check wiring and I2C address.");
-    addStatus("BMP280 connect fail!");
-    println("BMP280 connect fail!");
+    Log.error("BMP280 initialization failed");
   } else {
-    Logging.trace("BMP280", "BMP280 connected successfully.");
-    println("BMP280 connected.");
+    Log.trace("BMP280 is ready to use");
   } 
 
-  Logging.trace("SETUP", "Starting ThingSpeak service...");
+  Log.trace("Starting ThingSpeak service...");
   println("Start ThingSpeak");
   ThingSpeak.begin(client);
 
-  Logging.trace("SETUP", "Initializing receiver...");
+  Log.trace("Initializing receiver...");
   println("Start receiver");
   initDevices();
   receiver.begin(THRECEIVER_PIN);
 
-  Logging.info("SETUP", "Setup completed successfully. System is ready.");
+  Log.info("Setup completed successfully. System is ready.");
   println("Ready.");
 }
 
-void printData(THPacket packet) {
-    char sentence[32];
-    sprintf(sentence, "%02X %i %s %5.1f  %3i", packet.deviceID, packet.channelNo, packet.batteryState ? " " : "L", packet.temperature, packet.humidity);
-    println(sentence);
-    Logging.trace("RECEIVER", "Received packet - Device ID: 0x" + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) + "%");
-}
 
 unsigned long prevLocalMeasurement = 0;
 
 void processPacket(THPacket packet) {
-    printData(packet);
+    Log.trace("Received packet - Device ID: 0x" + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) + "%");
     int i = findDevice(packet.deviceID);
     if (i >= 0) {
       THDevice *d = devices[i];
@@ -346,11 +311,7 @@ void processPacket(THPacket packet) {
     } else {
       char sentence[32];
       sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
-      println(String(sentence));
-      // Add a status about an unknown device
-      sprintf(sentence, "%02X;%i;%s;%.1f;%i", packet.deviceID, packet.channelNo, packet.batteryState ? "N" : "L", packet.temperature, packet.humidity);
-      addStatus(String("Onbekend device: " + String(sentence)));
-      Logging.warning("RECEIVER", "Received packet from unknown device. Device ID: 0x" + String(packet.deviceID, HEX) + ", Temperature: " + String(packet.temperature));
+      Log.warning(sentence);
     }
 }
 

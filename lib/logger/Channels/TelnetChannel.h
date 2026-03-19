@@ -16,16 +16,8 @@ public:
 
 protected:
     void processEvent(const LogEvent& event) override {
-        // Formatteer het logberichten
-        const char* levelStr = getLevelStr(event);
         if (telnetClient->connected()) {
-            telnetClient->print(levelStr);
-            telnetClient->print("[");
-            telnetClient->print(event.module);
-            telnetClient->print("][");
-            telnetClient->print(event.timestamp);
-            telnetClient->print("] ");
-            telnetClient->println(event.message);
+            telnetClient->println(formatEventDefault(event));
         }
     }
     
