@@ -15,34 +15,47 @@ an 128x64 pixel I2C OLED display and BMP280
 #include "SparkFunBME280.h"
 
 #include "Logger.h"
-#include "channels/TelnetChannel.h"
 #include "DisplayLogChannel.h"
 #include "ThingSpeakLogChannel.h"
-
-// Enable or disable serial debugging. Set to 1 to enable, 0 to disable. 
-#define SERIAL_DEBUGGING_ENABLED 1
-#ifdef SERIAL_DEBUGGING_ENABLED
-  #define SERIAL_DEBUGGING_LEVEL Logger::TRACE
-  #pragma message("Serial debugging is ENABLED. This may impact performance. Set SERIAL_DEBUGGING_ENABLED to 0 to disable.")
-  #include "channels/SerialChannel.h"
-
-#endif
 
 #include "THReciever.h"
 #include "THDevice.h"
 #include "secrets.h"
 
+// Setting up WiFi
 #if defined(ARDUINO_ARCH_ESP8266)
-#include <ESP8266WiFi.h>
-#pragma message("Building for ESP8266 platform...")
-
+  #include <ESP8266WiFi.h>
+  #pragma message("Building for ESP8266 platform...")
 #elif defined(ARDUINO_ARCH_AVR)
-#include <WiFi.h>
-#pragma message("Building for Arduino AVR platform...")
-
+  #include <WiFi.h>
+  #pragma message("Building for Arduino AVR platform...")
 #elif defined(ARDUINO_ARCH_ESP32)
-#include <WiFi.h>
-#pragma message("Building for ESP32 platform...")
+  #include <WiFi.h>
+  #pragma message("Building for ESP32 platform...")
+#endif
+// WiFi network credentials (defined in secrets.h, which is not included in 
+// version control for security reasons)
+const char* ssid = SECRET_SSID;   // your network SSID (name) 
+const char* pass = SECRET_PASS;   // your network password
+
+int status = WL_IDLE_STATUS;     // the WiFi radio's status
+WiFiClient  wifiClient;
+
+// Setting up Telnet debugging (optional, can impact performance)
+#define TELNET_DEBUGGING_ENABLED 0
+#ifdef TELNET_DEBUGGING_ENABLED
+  #include "channels/TelnetChannel.h"
+  WiFiServer telnetServer(23);
+  WiFiClient telnetClient;
+  TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
+#endif
+
+// Setting up Serial debugging (optional, can impact performance)
+#define SERIAL_DEBUGGING_ENABLED 1
+#ifdef SERIAL_DEBUGGING_ENABLED
+  #define SERIAL_DEBUGGING_LEVEL Logger::TRACE
+  #pragma message("Serial debugging is ENABLED. This may impact performance. Set SERIAL_DEBUGGING_ENABLED to 0 to disable.")
+  #include "channels/SerialChannel.h"
 #endif
 
 #include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros
@@ -54,24 +67,11 @@ an 128x64 pixel I2C OLED display and BMP280
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-const char* ssid = SECRET_SSID;   // your network SSID (name) 
-const char* pass = SECRET_PASS;   // your network password
-
-int status = WL_IDLE_STATUS;     // the WiFi radio's status
-WiFiClient  client;
-
-#define TELNET_DEBUGGING_ENABLED 0
-#ifdef TELNET_DEBUGGING_ENABLED
-  WiFiServer telnetServer(23);
-  WiFiClient telnetClient;
-  TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
-#endif
+String displayLines[] = {String(""), String(""), String(""), String(""), String("")};
+unsigned int lineptr = 0;
 
 unsigned long myChannelNumber = SECRET_CH_ID;
 const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
-
-String lines[] = {String(""), String(""), String(""), String(""), String("")};
-unsigned int lineptr = 0;
 
 #define MY_BMP280_ADDRESS 0x76
 BME280 bmp280; //Uses default I2C address 0x76
@@ -79,7 +79,11 @@ BME280 bmp280; //Uses default I2C address 0x76
 #define THRECEIVER_PIN 3
 THReceiver receiver = THReceiver();
 
-unsigned long last_sent = 0;
+#define THINGSPEAK_UPDATE_INTERVAL 5 * 60 * 1000 // 5 minutes
+unsigned long nextThingSpeakUpdate = 0;
+
+#define LOCAL_MEASUREMENT_INTERVAL 60000 // 1 minute
+unsigned long nextLocalMeasurement = 0;
 
 THDevice **devices;
 
@@ -88,28 +92,9 @@ const int DEVICE_COUNT = 7;
 DisplayLogChannel displayLogChannel(Logger::DEBUG);
 ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
 
-void render() {
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 1);
-  display.clearDisplay();
-  // Display the lines
-  for (unsigned int index = 0; index < 5; index++) {
-    display.println(lines[(lineptr + index) % 8]);
-  }
-  for (unsigned int index = 0; index < 3; index++) {
-    display.println(displayLogChannel.getRecent(index));
-  }
-  display.display(); 
-}
-
-
-void println(String line) {
-  lines[lineptr] = line;
-  lineptr = (lineptr + 1) % 8;
-  render();
-}
-
+/**
+ * @brief Initializes the THDevice instances for each known device.
+ */
 void initDevices() {
   Log.trace("Creating THDevice instances for each known device");
   devices = new THDevice*[DEVICE_COUNT];
@@ -122,6 +107,12 @@ void initDevices() {
   devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
 }
 
+/**
+ * @brief Finds the index of the THDevice with the specified device ID.
+ * 
+ * @param deviceID The device ID to search for.
+ * @return The index of the device if found, otherwise -1.
+ */
 int findDevice(uint8_t deviceID) {
   for (int n = 0; n < DEVICE_COUNT; n++) {
     THDevice *d = devices[n];
@@ -131,6 +122,9 @@ int findDevice(uint8_t deviceID) {
   return -1;
 }
 
+/**
+ * @brief Converts a wl_status_t WiFi status code to a human-readable string.
+ */
 const char* wl_status_to_string(wl_status_t status) {
   switch (status) {               //"This string has exactly 32 chars"
     case WL_NO_SHIELD:       return "WiFi radio is not available";
@@ -149,7 +143,11 @@ const char* wl_status_to_string(wl_status_t status) {
   return buffer;
 }
 
-void connectWifi(const char* ssid, const char* pass) {
+/**
+ * @brief (Re)connects to the WiFi network using the provided SSID and 
+ * password.
+ */
+void connectWifi() {
   if (status == WL_CONNECTED) {
     return;
   }
@@ -178,6 +176,34 @@ void connectWifi(const char* ssid, const char* pass) {
   Log.info("WiFi connection successful");
 }
 
+void println(String line) {
+  displayLines[lineptr] = line;
+  lineptr = (lineptr + 1) % 8;
+  render();
+}
+
+/**
+ * @brief Renders the log messages on the OLED display.
+ */
+void render() {
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 1);
+  display.clearDisplay();
+  // Display the lines
+  for (unsigned int index = 0; index < 5; index++) {
+    display.println(displayLines[(lineptr + index) % 8]);
+  }
+  for (unsigned int index = 0; index < 3; index++) {
+    display.println(displayLogChannel.getRecent(index));
+  }
+  display.display(); 
+}
+
+/**
+ * @brief Updates the ThingSpeak channel with the latest measurements from the 
+ * devices and any pending status messages from the ThingSpeakLogChannel.
+ */
 void updateThingSpeak() {
   Log.trace("Updating ThingSpeak channel...");
   bool hasUpdates = false;
@@ -198,7 +224,7 @@ void updateThingSpeak() {
   
   if (hasUpdates) {
     // reconnect if needed
-    connectWifi(ssid, pass);
+    connectWifi();
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if(x == 200) {
@@ -209,21 +235,14 @@ void updateThingSpeak() {
     }
   } else {
     Log.trace("No updates to send to ThingSpeak.");
-    println("Nothing to update.");
-  }
-}
-
-void startInifiniteErrorLoop() {
-  Log.critical("Entering infinite OTA error loop");
-  connectWifi(ssid, pass);
-  ArduinoOTA.begin();
-  while (1) { // Don't proceed, loop forever. Everything else depends upon it
-    ArduinoOTA.handle();
-    delay(100);
   }
 }
 
 #ifdef TELNET_DEBUGGING_ENABLED
+/**
+ * @brief Checks for incoming telnet connections and accepts them. This allows 
+ * for remote logging over telnet. 
+ */
 bool handleTelnetConnections() {
   // Check for telnet clients
   if (telnetServer.hasClient()) {
@@ -234,6 +253,57 @@ bool handleTelnetConnections() {
   return false;
 }
 #endif
+
+/**
+ * @brief Processes an incoming THPacket.
+ */
+void processPacket(THPacket packet) {
+    Log.trace(
+      "Received packet - Device ID: 0x" 
+      + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) 
+      + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " 
+      + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) 
+      + "%"
+    );
+    int i = findDevice(packet.deviceID);
+    if (i >= 0) {
+      THDevice *d = devices[i];
+      d->process(packet);
+    } else {
+      char sentence[32];
+      sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
+      Log.warning(sentence);
+    }
+}
+
+/**
+ * @brief Takes a local measurement from the BMP280 sensor and returns it as a 
+ * THPacket.
+ */
+THPacket getLocalMeasurement() {
+  THPacket packet = {};
+  packet.deviceID = 0;
+  packet.channelNo = 9;
+  packet.batteryState = 1;
+  packet.temperature = static_cast<float>(static_cast<int>(bmp280.readTempC() * 10.)) / 10.;
+  packet.humidity = bmp280.readFloatHumidity();
+  packet.timestamp = millis();
+  return packet;
+}
+
+/**
+ * @brief Enters an infinite loop to handle OTA updates when a critical error 
+ * occurs.
+ */
+void startInifiniteErrorLoop() {
+  Log.critical("Entering infinite OTA error loop");
+  connectWifi();
+  ArduinoOTA.begin();
+  while (1) { // Don't proceed, loop forever. Everything else depends upon it
+    ArduinoOTA.handle();
+    delay(100);
+  }
+}
 
 /**
  * @brief The setup function runs once when the device is powered on or reset. 
@@ -248,7 +318,6 @@ void setup() {
     Serial.begin(115200);
     Log.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
   #endif
-
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -258,8 +327,7 @@ void setup() {
     Log.addChannel(&displayLogChannel);
     Log.trace("SSD1306 allocation successful");
   }
-
-  connectWifi(ssid, pass);
+  connectWifi();
   #ifdef TELNET_DEBUGGING_ENABLED
     // Setting up telnet logging
     telnetServer.begin();
@@ -272,78 +340,54 @@ void setup() {
       delay(100);
     }
   #endif
-
   Log.trace("Starting OTA service...");
   ArduinoOTA.begin();
-
   Log.trace("Initializing receiver and sensors...");
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
   //The I2C address must be set before .begin() otherwise the cal values will fail to load.
-
   if(bmp280.beginI2C() == false) {
     Log.error("BMP280 initialization failed");
   } else {
     Log.trace("BMP280 is ready to use");
   } 
-
   Log.trace("Starting ThingSpeak service...");
-  println("Start ThingSpeak");
-  ThingSpeak.begin(client);
-
+  ThingSpeak.begin(wifiClient);
   Log.trace("Initializing receiver...");
-  println("Start receiver");
   initDevices();
   receiver.begin(THRECEIVER_PIN);
-
   Log.info("Setup completed successfully. System is ready.");
-  println("Ready.");
 }
 
-
-unsigned long prevLocalMeasurement = 0;
-
-void processPacket(THPacket packet) {
-    Log.trace("Received packet - Device ID: 0x" + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) + "%");
-    int i = findDevice(packet.deviceID);
-    if (i >= 0) {
-      THDevice *d = devices[i];
-      d->process(packet);
-    } else {
-      char sentence[32];
-      sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
-      Log.warning(sentence);
-    }
-}
-
+/**
+ * @brief The loop function runs continuously after setup() has completed. It
+ * handles OTA updates, processes incoming packets from the 433 MHz receiver, 
+ * takes periodic measurements from the BMP280 sensor, checks for device timeouts, 
+ * and updates ThingSpeak with the latest data. The loop also includes a watchdog 
+ * mechanism to ensure the system remains responsive, and it gives the CPU some 
+ * rest by introducing a small delay when appropriate. 
+ */
 void loop() {
+  unsigned long now = millis();
   ArduinoOTA.handle();
+  // Check for incoming packets from the 433 MHz receiver
   if (receiver.isAvailable()) {
     THPacket packet = receiver.getLastReceived();
     processPacket(packet);
   }
-  unsigned long now = millis();
-  if (prevLocalMeasurement == 0 || now - prevLocalMeasurement > 60000) {
-    THPacket packet = {};
-    packet.deviceID = 0;
-    packet.channelNo = 9;
-    packet.batteryState = 1;
-    packet.temperature = static_cast<float>(static_cast<int>(bmp280.readTempC() * 10.)) / 10.;
-    packet.humidity = bmp280.readFloatHumidity();
-    packet.timestamp = now;
-    processPacket(packet);
-    prevLocalMeasurement = now;
+  // Periodically take local measurements from the BMP280 sensor
+  if (now >= nextLocalMeasurement) {
+    processPacket(getLocalMeasurement());
+    nextLocalMeasurement = now + LOCAL_MEASUREMENT_INTERVAL;
   }
-
   // Timeout watchdog
   for (int n = 0; n < DEVICE_COUNT; n++) {
     THDevice *d = devices[n];
     d->checkTimeout();
   }
-
-  unsigned long current = millis();
-  if ((current - last_sent) > 60000 || last_sent == 0) {
+  // Periodically update ThingSpeak with the latest measurements and status updates
+  if (now >= nextThingSpeakUpdate) {
     updateThingSpeak();
-    last_sent = current;
+    nextThingSpeakUpdate = now + THINGSPEAK_UPDATE_INTERVAL;
   } else {
     // Give the cpu some rest
     delay(100);
