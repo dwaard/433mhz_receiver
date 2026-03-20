@@ -17,15 +17,22 @@ String formatString(const char *format, ...) {
  * that value can be disabled.
  * 
  * @param deviceID the ID of the device. Normally a number between 0 and 0xFF
+ * @param displayID the ID to use for display purposes
  * @param channelNo should be 1, 2 or 4
  * @param name human readable name. Basically which temperature and humidity this
  *              device monitors
  * @param correction temperature correction. A simple calibration feature
  * @param hasHumidity `false` to disable the humidity values (default `true`)
  */
-THDevice::THDevice(uint8_t deviceID, uint8_t channelNo, const char *name, 
-                    float correction, bool hasHumidity) {
+THDevice::THDevice(
+        uint8_t deviceID, 
+        uint8_t displayID, 
+        uint8_t channelNo,
+        const char *name, 
+        float correction, 
+        bool hasHumidity) {
   _deviceID = deviceID;
+  this->displayID = displayID;
   _channelNo = channelNo;
   _name = name;
   _correction = correction;
@@ -58,6 +65,28 @@ bool THDevice::hasID(uint8_t id) {
  */
  String THDevice::printName() {
   return String(String(_name) + " (0x" + String(_deviceID, HEX) + ")");
+}
+
+/**
+ * Prints a display ready status for this device.
+ * 
+ * @param buf the buffer to print to 
+ */
+ String THDevice::getLastStatus() {
+  String name = formatString("%4s", _name);
+  String batt = " ";
+  if (_validTempsCount >= BASELINE_SIZE && !_last.batteryState) {
+    batt = "X";
+  }
+  String value = String("  ___");
+  if (_validTempsCount >= BASELINE_SIZE) {
+    value = formatString("%5.1f", _last.temperature);
+  } else {
+    for (unsigned int i = 0; i < _validTempsCount; i++) {
+      value.setCharAt(i + 2, '-');
+    }
+  }
+  return String(name + batt + value);
 }
 
 /**

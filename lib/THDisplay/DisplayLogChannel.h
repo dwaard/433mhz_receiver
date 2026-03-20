@@ -4,12 +4,13 @@
 
 #include "Logger.h"
 #include "LogChannel.h"
+#include "THDisplay.h"
 
 class DisplayLogChannel : public LogChannel 
 {
 public:
     // Constructor met logLevel-parameter (default: INFO)
-    DisplayLogChannel(uint8_t level = Logger::INFO) : LogChannel(level) {
+    DisplayLogChannel(THDisplay& display, uint8_t level = Logger::INFO) : LogChannel(level), display(display)  {
     }
 
     char* getRecent(int index) {
@@ -19,14 +20,12 @@ public:
     }   
 
 protected:
+    THDisplay& display; // Reference to the display object for rendering log messages
     char recentMessages[3][32] = {{""}, {""}, {""}}; // Buffer to store the 3 most recent log messages
     uint8_t currentIndex = 0; // Index to track the current position in the recentMessages buffer
 
     void processEvent(const LogEvent& event) override {
-        // Store the log message in the recentMessages buffer
-        recentMessages[currentIndex][0] = '\0'; // Clear the current message buffer
-        snprintf(recentMessages[currentIndex], sizeof(recentMessages[currentIndex]), formatEventDefault(event).c_str());
-        currentIndex = (currentIndex + 1) % 3; // Move to the next index in a circular manner
+        display.println(formatEventDefault(event)); // Print the log message to the display
     }
 };
 

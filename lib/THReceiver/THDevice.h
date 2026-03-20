@@ -55,6 +55,11 @@
     uint8_t deviceID;
 
     /**
+     * Location on the display. 
+     */
+    uint8_t displayID;
+
+    /**
      * A short name for this device.
      */
     char name[5];
@@ -96,14 +101,16 @@
        */
       THDevice(
         uint8_t deviceID, 
-        uint8_t channelNo, 
+        uint8_t displayID, 
+        uint8_t channelNo,
         const char *name, 
         float correction, 
         bool hasHumidity = true);
 
       THDevice(DeviceConfig config) 
         : THDevice(
-            config.deviceID, 
+            config.deviceID,
+            config.displayID, 
             (config.settings >> 1) & 0b11, 
             config.name, 
             config.correction / 10.0, 
@@ -116,6 +123,7 @@
       String printName();
 
       bool process(THPacket measurement);
+      String getLastStatus();
       void checkTimeout();
 
       bool hasUpdates();
@@ -123,6 +131,8 @@
       bool hasStatusupdates();
       String getStatusupdates();
       void resetStatus();
+
+      uint8_t displayID;
 
     private:
       uint8_t _deviceID;

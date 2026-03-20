@@ -11,16 +11,14 @@ an 128x64 pixel I2C OLED display and BMP280
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <Wire.h>
-#include <Adafruit_SSD1306.h>
+#include "THDisplay.h"
 #include "SparkFunBME280.h"
 
 #include "Logger.h"
 #include "DisplayLogChannel.h"
-#include "ThingSpeakLogChannel.h"
 
 #include "THReciever.h"
 #include "THDevice.h"
-#include "secrets.h"
 
 // Setting up WiFi
 #if defined(ARDUINO_ARCH_ESP8266)
@@ -35,6 +33,7 @@ an 128x64 pixel I2C OLED display and BMP280
 #endif
 // WiFi network credentials (defined in secrets.h, which is not included in 
 // version control for security reasons)
+#include "secrets.h"
 const char* ssid = SECRET_SSID;   // your network SSID (name) 
 const char* pass = SECRET_PASS;   // your network password
 
@@ -58,39 +57,34 @@ WiFiClient  wifiClient;
   #include "channels/SerialChannel.h"
 #endif
 
+// Setting up ThingSpeak
+#include "ThingSpeakLogChannel.h"
 #include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros
-
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-String displayLines[] = {String(""), String(""), String(""), String(""), String("")};
-unsigned int lineptr = 0;
 
 unsigned long myChannelNumber = SECRET_CH_ID;
 const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
 
-#define MY_BMP280_ADDRESS 0x76
-BME280 bmp280; //Uses default I2C address 0x76
-
-#define THRECEIVER_PIN 3
-THReceiver receiver = THReceiver();
-
 #define THINGSPEAK_UPDATE_INTERVAL 5 * 60 * 1000 // 5 minutes
 unsigned long nextThingSpeakUpdate = 0;
+
+ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
+
+// Setting up the BMP280 sensor for local measurements
+#define MY_BMP280_ADDRESS 0x76
+BME280 bmp280; //Uses default I2C address 0x76
 
 #define LOCAL_MEASUREMENT_INTERVAL 60000 // 1 minute
 unsigned long nextLocalMeasurement = 0;
 
-THDevice **devices;
+// Additional log channels
+DisplayLogChannel displayLogChannel(Display, Logger::DEBUG);
+
+// Setting up the receiver and devices
+#define THRECEIVER_PIN 3
+THReceiver receiver = THReceiver();
 
 const int DEVICE_COUNT = 7;
-
-DisplayLogChannel displayLogChannel(Logger::DEBUG);
-ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
+THDevice **devices;
 
 /**
  * @brief Initializes the THDevice instances for each known device.
@@ -98,13 +92,17 @@ ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
 void initDevices() {
   Log.trace("Creating THDevice instances for each known device");
   devices = new THDevice*[DEVICE_COUNT];
-  devices[0] = new THDevice(0xA0, 1, "BT-S",  0  , THDevice::DISABLE_HUMIDITY);
-  devices[1] = new THDevice(0xE5, 2, "Garg"    , -1.3);
-  devices[2] = new THDevice(0x22, 3, "Kkn"    ,  0  );
-  devices[3] = new THDevice(0xD7, 1, "Slkr",  0  , THDevice::DISABLE_HUMIDITY);
-  devices[4] = new THDevice(0x53, 2, "Kldr"    ,  0  );
-  devices[5] = new THDevice(0x00, 9, "Kntr"    ,  0  );
-  devices[6] = new THDevice(0x16, 1, "BT-G"    ,  0  );
+  // TODO wrong displayIDs AND/OR channel numbers for some devices, need to be fixed
+  devices[0] = new THDevice(0xA0, 5, 5, "BT-S",  0, THDevice::DISABLE_HUMIDITY);
+  devices[1] = new THDevice(0xE5, 6, 6, "Garg", -1.3);
+  devices[2] = new THDevice(0x22, 1, 1, "Kkn",  0  );
+  devices[3] = new THDevice(0xD7, 1, 2, "Slkr",  0, THDevice::DISABLE_HUMIDITY);
+  devices[4] = new THDevice(0x3C, 2, 3, "Kldr",  0  );
+  devices[5] = new THDevice(0x00, 9, 0, "Kntr",  0  );
+  devices[6] = new THDevice(0x16, 1, 4, "BT-G",  0  );
+  for (int i=0; i<DEVICE_COUNT; i++) {
+    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
+  }
 }
 
 /**
@@ -144,7 +142,7 @@ const char* wl_status_to_string(wl_status_t status) {
 }
 
 /**
- * @brief (Re)connects to the WiFi network using the provided SSID and 
+ * @brief (Re)connects to the WiFi network using the global SSID and 
  * password.
  */
 void connectWifi() {
@@ -176,38 +174,14 @@ void connectWifi() {
   Log.info("WiFi connection successful");
 }
 
-void println(String line) {
-  displayLines[lineptr] = line;
-  lineptr = (lineptr + 1) % 8;
-  render();
-}
-
-/**
- * @brief Renders the log messages on the OLED display.
- */
-void render() {
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 1);
-  display.clearDisplay();
-  // Display the lines
-  for (unsigned int index = 0; index < 5; index++) {
-    display.println(displayLines[(lineptr + index) % 8]);
-  }
-  for (unsigned int index = 0; index < 3; index++) {
-    display.println(displayLogChannel.getRecent(index));
-  }
-  display.display(); 
-}
-
 /**
  * @brief Updates the ThingSpeak channel with the latest measurements from the 
  * devices and any pending status messages from the ThingSpeakLogChannel.
  */
 void updateThingSpeak() {
   Log.trace("Updating ThingSpeak channel...");
+  Display.updateThingSpeakStatus(0);
   bool hasUpdates = false;
-
   for (int n = 0; n < DEVICE_COUNT; n++) {
     THDevice *d = devices[n];
     if (d->hasUpdates()) {
@@ -215,18 +189,18 @@ void updateThingSpeak() {
       ThingSpeak.setField(n + 1, m.temperature);
       hasUpdates = true;
     }
-    // TODO add updates from the ThingSpeakChannel
     if (thingSpeakLogChannel.hasStatusToSend()) {
       ThingSpeak.setStatus(thingSpeakLogChannel.getStatusForSending());
       hasUpdates = true;
     }
   }
-  
   if (hasUpdates) {
+    Log.trace("Updating ThingSpeak channel...");
     // reconnect if needed
     connectWifi();
     //write to the ThingSpeak channel
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+    Display.updateThingSpeakStatus(x);
     if(x == 200) {
       Log.info("ThingSpeak update successful.");
     }
@@ -235,6 +209,7 @@ void updateThingSpeak() {
     }
   } else {
     Log.trace("No updates to send to ThingSpeak.");
+    Display.updateThingSpeakStatus(100);
   }
 }
 
@@ -258,20 +233,21 @@ bool handleTelnetConnections() {
  * @brief Processes an incoming THPacket.
  */
 void processPacket(THPacket packet) {
-    Log.trace(
-      "Received packet - Device ID: 0x" 
-      + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) 
-      + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " 
-      + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) 
-      + "%"
-    );
     int i = findDevice(packet.deviceID);
     if (i >= 0) {
+      Log.trace(
+        "Received packet - Device ID: 0x" 
+        + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) 
+        + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " 
+        + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) 
+        + "%"
+      );
       THDevice *d = devices[i];
       d->process(packet);
+      Display.updateDeviceInfo(d->displayID, d->getLastStatus());
     } else {
       char sentence[32];
-      sprintf(sentence, "UNKNOWN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
+      sprintf(sentence, "UNKN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
       Log.warning(sentence);
     }
 }
@@ -320,10 +296,9 @@ void setup() {
   #endif
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+  if(!Display.begin()) {
     Log.error("SSD1306 allocation failed");
   } else {
-    display.setRotation(2);
     Log.addChannel(&displayLogChannel);
     Log.trace("SSD1306 allocation successful");
   }
@@ -379,6 +354,8 @@ void loop() {
     processPacket(getLocalMeasurement());
     nextLocalMeasurement = now + LOCAL_MEASUREMENT_INTERVAL;
   }
+  // Update WiFi status on the display
+  Display.updateWifiStatus(WiFi.status() == WL_CONNECTED, WiFi.RSSI());
   // Timeout watchdog
   for (int n = 0; n < DEVICE_COUNT; n++) {
     THDevice *d = devices[n];
