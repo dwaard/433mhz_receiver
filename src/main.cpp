@@ -10,136 +10,121 @@ an 128x64 pixel I2C OLED display and BMP280
 ******************************************************************************/
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Wire.h>
+
 #include "THDisplay.h"
-#include "SparkFunBME280.h"
-
 #include "Logger.h"
-#include "DisplayLogChannel.h"
+#include "channels/SerialChannel.h"
+#include "channels/TelnetChannel.h"
 
-#include "THReciever.h"
 #include "THDevice.h"
 
-// Setting up WiFi
-#if defined(ARDUINO_ARCH_ESP8266)
-  #include <ESP8266WiFi.h>
-  #pragma message("Building for ESP8266 platform...")
-#elif defined(ARDUINO_ARCH_AVR)
-  #include <WiFi.h>
-  #pragma message("Building for Arduino AVR platform...")
-#elif defined(ARDUINO_ARCH_ESP32)
-  #include <WiFi.h>
-  #pragma message("Building for ESP32 platform...")
-#endif
-// WiFi network credentials (defined in secrets.h, which is not included in 
-// version control for security reasons)
+#define TELNET_DEBUGGING_ENABLED 0
+
+#define SERIAL_DEBUGGING_ENABLED 1
+
+// Max 8 devices for now, can be extended in the future
+#define SENSOR_COUNT 8
+
+struct Config {
+  bool initialized = false;
+  uint8_t logLevel = 2; // 0 = NONE, 5 = TRACE, ... 50 = CRITICAL
+  String version = "1.0";
+} config;
+
+DeviceConfig sensorConfigs[SENSOR_COUNT];
+
+THDevice **devices = new THDevice*[SENSOR_COUNT];
+
+/******************************************************************************
+ *                                                                            *
+ * EEPROM config handling                                                     *
+ *                                                                            *
+ *****************************************************************************/
+#include <EEPROM.h>
+
+#define CONFIG_EEPROM_SIZE sizeof(Config) + sizeof(sensorConfigs)
+#define CONFIG_EEPROM_ADDRESS 0
+#define CONFIG_SENSORS_ADDRESS CONFIG_EEPROM_ADDRESS + sizeof(Config)
+
+void setSensorConfig(uint8_t index, uint8_t deviceID, const char* name, bool hasHumidity, uint8_t channel, int8_t correction, uint8_t maxValidDelta, uint8_t maxValidInterval) {
+  sensorConfigs[index].deviceID = deviceID;
+  strlcpy(sensorConfigs[index].name, name, sizeof(sensorConfigs[index].name));
+  if (hasHumidity) {
+    sensorConfigs[index].settings |= 0b00000001; // Set bit 0
+  } else {
+    sensorConfigs[index].settings &= ~0b00000001; // Clear bit 0
+  }
+  // Set the channel bits (bits 1-2) in settings
+  sensorConfigs[index].settings &= ~0b00000110; // Clear bits 1-2
+  sensorConfigs[index].settings |= ((channel & 0b00000011) << 1) & 0b00000110; // Set bits 1-2 based on channel value
+  sensorConfigs[index].correction = correction;
+  sensorConfigs[index].maxValidDelta = maxValidDelta;
+  sensorConfigs[index].maxValidInterval = maxValidInterval;
+}
+
+void saveConfig() {
+  Log.info("Saving configuration...");
+  EEPROM.begin(CONFIG_EEPROM_SIZE);
+  EEPROM.put(CONFIG_EEPROM_ADDRESS, config);
+  EEPROM.put(CONFIG_SENSORS_ADDRESS, sensorConfigs);
+  EEPROM.commit();
+}
+
+void initConfig() {
+  Log.info("Initializing configuration...");
+  setSensorConfig(0, 0xA0, "BT-S", false, 1,   0, 7, 15);
+  setSensorConfig(1, 0xE5, "Garg", true,  2, -13, 7, 15);
+  setSensorConfig(2, 0x22, "Kkn ", true,  3,   0, 7, 15);
+  setSensorConfig(3, 0xD7, "Slkr", false, 1,   0, 7, 15);
+  setSensorConfig(4, 0x53, "Kldr", true,  2,   0, 7, 15);
+  setSensorConfig(5, 0x00, "Kntr", true,  0,   0, 7, 15);
+  setSensorConfig(6, 0x16, "BT-G", true,  1,   0, 7, 15);
+  setSensorConfig(7, 0xFF, "----", false, 0,   0, 7, 15);
+  config.initialized = true;
+  config.logLevel = Logger::INFO;
+  config.version = "1.0";
+  saveConfig();
+}
+
+void loadConfig() {
+  EEPROM.begin(CONFIG_EEPROM_SIZE);
+  EEPROM.get(CONFIG_EEPROM_ADDRESS, config);
+  if (!config.initialized) {
+    initConfig();
+  } else {
+    EEPROM.get(CONFIG_SENSORS_ADDRESS, sensorConfigs);
+  }
+}
+
+DeviceConfig loadSensorConfig(int index) {
+  if (index < 0 || index >= SENSOR_COUNT) {
+    Log.error("Invalid sensor index: " + String(index));
+    return DeviceConfig(); // Return default config for invalid index
+  }
+  DeviceConfig config;
+  EEPROM.begin(CONFIG_EEPROM_SIZE);
+  EEPROM.get(CONFIG_SENSORS_ADDRESS + index * sizeof(DeviceConfig), config);
+  return config;
+} 
+
+
+/******************************************************************************
+ *                                                                            *
+ * Wifi connection functions                                                  *
+ *                                                                            *
+ *****************************************************************************/
+#include <WiFiServer.h>
+#include <WiFiClient.h>
+#include "net.h"
+
 #include "secrets.h"
-const char* ssid = SECRET_SSID;   // your network SSID (name) 
-const char* pass = SECRET_PASS;   // your network password
+
+const char *ssid = SECRET_SSID; // your network SSID (name)
+const char *pass = SECRET_PASS; // your network password
 
 int status = WL_IDLE_STATUS;     // the WiFi radio's status
-WiFiClient  wifiClient;
 
-// Setting up Telnet debugging (optional, can impact performance)
-#define TELNET_DEBUGGING_ENABLED 0
-#ifdef TELNET_DEBUGGING_ENABLED
-  #include "channels/TelnetChannel.h"
-  WiFiServer telnetServer(23);
-  WiFiClient telnetClient;
-  TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
-#endif
-
-// Setting up Serial debugging (optional, can impact performance)
-#define SERIAL_DEBUGGING_ENABLED 1
-#ifdef SERIAL_DEBUGGING_ENABLED
-  #define SERIAL_DEBUGGING_LEVEL Logger::TRACE
-  #pragma message("Serial debugging is ENABLED. This may impact performance. Set SERIAL_DEBUGGING_ENABLED to 0 to disable.")
-  #include "channels/SerialChannel.h"
-#endif
-
-// Setting up ThingSpeak
-#include "ThingSpeakLogChannel.h"
-#include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros
-
-unsigned long myChannelNumber = SECRET_CH_ID;
-const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
-
-#define THINGSPEAK_UPDATE_INTERVAL 5 * 60 * 1000 // 5 minutes
-unsigned long nextThingSpeakUpdate = 0;
-
-ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
-
-// Setting up the BMP280 sensor for local measurements
-#define MY_BMP280_ADDRESS 0x76
-BME280 bmp280; //Uses default I2C address 0x76
-
-#define LOCAL_MEASUREMENT_INTERVAL 60000 // 1 minute
-unsigned long nextLocalMeasurement = 0;
-
-// Additional log channels
-DisplayLogChannel displayLogChannel(Display, Logger::DEBUG);
-
-// Setting up the receiver and devices
-#define THRECEIVER_PIN 3
-THReceiver receiver = THReceiver();
-
-const int DEVICE_COUNT = 7;
-THDevice **devices;
-
-/**
- * @brief Initializes the THDevice instances for each known device.
- */
-void initDevices() {
-  Log.trace("Creating THDevice instances for each known device");
-  devices = new THDevice*[DEVICE_COUNT];
-  // TODO wrong displayIDs AND/OR channel numbers for some devices, need to be fixed
-  devices[0] = new THDevice(0xA0, 5, 5, "BT-S",  0, THDevice::DISABLE_HUMIDITY);
-  devices[1] = new THDevice(0xE5, 6, 6, "Garg", -1.3);
-  devices[2] = new THDevice(0x22, 1, 1, "Kkn",  0  );
-  devices[3] = new THDevice(0xD7, 1, 2, "Slkr",  0, THDevice::DISABLE_HUMIDITY);
-  devices[4] = new THDevice(0x3C, 2, 3, "Kldr",  0  );
-  devices[5] = new THDevice(0x00, 9, 0, "Kntr",  0  );
-  devices[6] = new THDevice(0x16, 1, 4, "BT-G",  0  );
-  for (int i=0; i<DEVICE_COUNT; i++) {
-    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
-  }
-}
-
-/**
- * @brief Finds the index of the THDevice with the specified device ID.
- * 
- * @param deviceID The device ID to search for.
- * @return The index of the device if found, otherwise -1.
- */
-int findDevice(uint8_t deviceID) {
-  for (int n = 0; n < DEVICE_COUNT; n++) {
-    THDevice *d = devices[n];
-    if (d->hasID(deviceID))
-      return n;
-  }
-  return -1;
-}
-
-/**
- * @brief Converts a wl_status_t WiFi status code to a human-readable string.
- */
-const char* wl_status_to_string(wl_status_t status) {
-  switch (status) {               //"This string has exactly 32 chars"
-    case WL_NO_SHIELD:       return "WiFi radio is not available";
-    case WL_IDLE_STATUS:     return "WiFi Radio in in idle";
-    case WL_NO_SSID_AVAIL:   return "No SSIDs available";
-    case WL_SCAN_COMPLETED:  return "WiFi scan completed";
-    case WL_CONNECTED:       return "Connected to WiFi";
-    case WL_CONNECT_FAILED:  return "Connection to WiFi failed";
-    case WL_CONNECTION_LOST: return "WiFi connection lost";
-    case WL_WRONG_PASSWORD:  return "Wrong password";
-    case WL_DISCONNECTED:    return "Disconnected from WiFi";
-  }
-  // Create a static buffer to hold the status value
-  static char buffer[32];
-  snprintf(buffer, sizeof(buffer), "UNKNOWN STATUS: %d", status);
-  return buffer;
-}
+WiFiClient client;
 
 /**
  * @brief (Re)connects to the WiFi network using the global SSID and 
@@ -174,6 +159,69 @@ void connectWifi() {
   Log.info("WiFi connection successful");
 }
 
+// Setting up Telnet debugging (optional, can impact performance)
+#ifdef TELNET_DEBUGGING_ENABLED
+  #include "channels/TelnetChannel.h"
+  WiFiServer telnetServer(23);
+  WiFiClient telnetClient;
+  TelnetChannel telnetChannel(&telnetClient, Logger::DEBUG);
+#endif
+
+// Setting up Serial debugging (optional, can impact performance)
+#ifdef SERIAL_DEBUGGING_ENABLED
+  #define SERIAL_DEBUGGING_LEVEL Logger::TRACE
+  #pragma message("Serial debugging is ENABLED. This may impact performance. Set SERIAL_DEBUGGING_ENABLED to 0 to disable.")
+  #include "channels/SerialChannel.h"
+#endif
+
+#include "THReciever.h"
+// Setting up the receiver and devices
+#define THRECEIVER_PIN 3
+THReceiver receiver = THReceiver();
+
+/**
+ * @brief Initializes the THDevice instances for each known device.
+ */
+void initDevices() {
+  Log.trace("Creating THDevice instances for each known device");
+  for (int i=0; i<SENSOR_COUNT; i++) {
+    devices[i] = new THDevice(sensorConfigs[i]);
+    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
+    Log.trace("Initialized sensor config for device ID: " + String(sensorConfigs[i].deviceID));
+  }
+}
+
+/**
+ * @brief Finds the index of the THDevice with the specified device ID.
+ * 
+ * @param deviceID The device ID to search for.
+ * @return The index of the device if found, otherwise -1.
+ */
+int findDevice(uint8_t deviceID) {
+  for (int n = 0; n < SENSOR_COUNT; n++) {
+    THDevice *d = devices[n];
+    if (d->hasID(deviceID))
+      return n;
+  }
+  return -1;
+}
+
+/******************************************************************************
+ *                                                                            *
+ * ThingSpeak functions                                                       *
+ *                                                                            *
+ *****************************************************************************/
+#include "ThingSpeakLogChannel.h"
+#include "ThingSpeak.h" // always include thingspeak header file after other header files and custom macros
+
+unsigned long myChannelNumber = SECRET_CH_ID;
+const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
+
+#define THINGSPEAK_UPDATE_INTERVAL 5 * 60 * 1000 // 5 minutes
+unsigned long nextThingSpeakUpdate = 0;
+
+ThingSpeakLogChannel thingSpeakLogChannel(Logger::DEBUG);
+
 /**
  * @brief Updates the ThingSpeak channel with the latest measurements from the 
  * devices and any pending status messages from the ThingSpeakLogChannel.
@@ -182,7 +230,7 @@ void updateThingSpeak() {
   Log.trace("Updating ThingSpeak channel...");
   Display.updateThingSpeakStatus(0);
   bool hasUpdates = false;
-  for (int n = 0; n < DEVICE_COUNT; n++) {
+  for (int n = 0; n < SENSOR_COUNT; n++) {
     THDevice *d = devices[n];
     if (d->hasUpdates()) {
       THPacket m = d->getLastRecieved();
@@ -212,6 +260,208 @@ void updateThingSpeak() {
     Display.updateThingSpeakStatus(100);
   }
 }
+
+/******************************************************************************
+ *                                                                            *
+ * Webserver request handler functions                                        *
+ *                                                                            *
+ *****************************************************************************/
+#include <ESP8266WebServer.h>
+#include <ArduinoJson.h>
+#include <uri/UriBraces.h>
+
+ESP8266WebServer server(80);
+
+/**
+ * Handles GET requests to the root (/) endpoint.
+ * 
+ * It returns a JSON response containing an array of sensors with their actual
+ * data.
+ */
+void handleRoot() {
+  Log.info("Received GET / request");
+  JsonDocument json;
+  // Voeg hier je sensordata toe aan het JSON-object
+  // Bijvoorbeeld:
+  JsonArray sensors = json["sensors"].to<JsonArray>();
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    JsonObject sensor = sensors.add<JsonObject>();
+    sensor["deviceID"] = sensorConfigs[i].deviceID;
+    sensor["name"] = sensorConfigs[i].name;
+    // TODO Voeg hier ook actuele meetwaarden toe als je die hebt
+  }
+  String response;
+  serializeJson(json, response);
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Handles GET requests to the /config endpoint. 
+ * 
+ * It returns a JSON response containing the global config.
+ */
+void handleGetConfig() {
+  Log.info("Received GET /config request");
+  JsonDocument json;
+  json["log-level"] = config.logLevel;
+  json["version"] = config.version;
+  String response;
+  serializeJson(json, response);
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Handles PATCH request to the /config endpoint.
+ * 
+ * It updates the global config
+ */
+void handlePatchConfig() {
+  Log.info("Received PATCH /config request");
+  if (server.hasArg("plain") == false) {
+    server.send(400, "application/json", "{\"error\":\"Geen body\"}");
+    return;
+  }
+  String body = server.arg("plain");
+  JsonDocument json;
+  DeserializationError error = deserializeJson(json, body);
+
+  if (error) {
+    server.send(400, "application/json", "{\"error\":\"Ongeldige JSON\"}");
+    return;
+  }
+
+  if (json["log-level"].is<uint8_t>()) {
+    config.logLevel = json["log-level"].as<uint8_t>();
+    telnetChannel.setLogLevel(config.logLevel);
+  }
+
+  saveConfig(); // Sla bijgewerkte configuratie op
+
+  JsonDocument response;
+  response["log-level"] = config.logLevel;
+  response["version"] = config.version;
+  String output;
+  serializeJson(response, output);
+  server.send(200, "application/json", output);
+} 
+
+/**
+ * Handles 
+ */
+void handleResetConfig() {
+  Log.info("Received POST /config/reset request");
+  config.initialized = false;
+  saveConfig();
+  String response = "{\"status\":\"ok\",\"message\":\"Configuratie gereset!\"}";
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Handles
+ */
+void handleGetConfigSensors() {
+  Log.info("Received GET /config/sensors request");
+  JsonDocument json;
+  // Voeg hier je sensorconfiguratie toe aan het JSON-object
+  // Bijvoorbeeld:
+  JsonArray sensors = json["sensors"].to<JsonArray>();
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    JsonObject sensor = sensors.add<JsonObject>();
+    sensor["deviceID"] = sensorConfigs[i].deviceID;
+    sensor["name"] = sensorConfigs[i].name;
+    sensor["hasHumidity"] = (sensorConfigs[i].settings & 0b00000001) != 0;
+    sensor["channel"] = (sensorConfigs[i].settings & 0b00000110) >> 1;
+    sensor["correction"] = sensorConfigs[i].correction;
+    sensor["maxValidDelta"] = sensorConfigs[i].maxValidDelta;
+    sensor["maxValidInterval"] = sensorConfigs[i].maxValidInterval;
+  }
+  String response;
+  serializeJson(json, response);
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Handles
+ */
+void handlePatchConfigSensors() {
+  int id = server.pathArg(0).toInt();
+  Log.info("Received PATCH /config/sensors request for sensor ID: " + String(id));
+
+  if (id < 0 || id >= SENSOR_COUNT) {
+    server.send(404, "application/json", "{\"error\":\"Ongeldige sensor ID\"}");
+    return;
+  }
+
+  if (server.hasArg("plain") == false) {
+    server.send(400, "application/json", "{\"error\":\"Geen body\"}");
+    return;
+  }
+
+  String body = server.arg("plain");
+  JsonDocument json;
+  DeserializationError error = deserializeJson(json, body);
+
+  if (error || !json["deviceID"].is<uint8_t>()) {
+    server.send(422, "application/json", "{\"error\":\"Ongeldige JSON\"}");
+    return;
+  }
+
+  sensorConfigs[id].deviceID = json["deviceID"];
+  if (json["name"].is<const char*>()) {
+    strlcpy(sensorConfigs[id].name, json["name"], sizeof(sensorConfigs[id].name));
+  }
+  if (json["settings"].is<uint8_t>()) {
+    sensorConfigs[id].settings = json["settings"];
+  }
+  // Set the hasHumidity bit (bit 0) in settings
+  if (json["hasHumidity"]) {
+    sensorConfigs[id].settings |= 0b00000001; // Set bit 0
+  } else {
+    sensorConfigs[id].settings &= ~0b00000001; // Clear bit 0
+  }
+  if (json["channel"].is<uint8_t>()) {
+    // Set the channel bits (bits 1-2) in settings
+    sensorConfigs[id].settings &= ~0b00000110; // Clear bits 1-2
+    uint8_t channel = json["channel"]; // Get only the last 2 bits for channel
+    sensorConfigs[id].settings |= ((channel & 0b00000011) << 1) & 0b00000110; // Set bits 1-2 based on channel value
+  }
+  if (json["maxValidDelta"].is<uint8_t>()) {
+    sensorConfigs[id].maxValidDelta = json["maxValidDelta"];
+  }
+  if (json["maxValidInterval"].is<uint8_t>()) {
+    sensorConfigs[id].maxValidInterval = json["maxValidInterval"];
+  }
+
+  saveConfig(); // Sla bijgewerkte configuratie op
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+}
+
+/**
+ * Handles unhandlesd routes
+ */
+void handleNotFound() {
+  Log.info("Received 404 request");
+  String message = "File Not Found\n\n";
+  server.send(404, "text/plain", message);
+}
+
+/******************************************************************************
+ *                                                                            *
+ * BMP280 sensor functions                                                    *
+ *                                                                            *
+ *****************************************************************************/
+#include "SparkFunBME280.h"
+// Setting up the BMP280 sensor for local measurements
+#define MY_BMP280_ADDRESS 0x76
+BME280 bmp280; //Uses default I2C address 0x76
+
+#define LOCAL_MEASUREMENT_INTERVAL 60000 // 1 minute
+unsigned long nextLocalMeasurement = 0;
+
+
+#include "DisplayLogChannel.h"
+// Additional log channels
+DisplayLogChannel displayLogChannel(Display, Logger::DEBUG);
 
 #ifdef TELNET_DEBUGGING_ENABLED
 /**
@@ -294,6 +544,10 @@ void setup() {
     Serial.begin(115200);
     Log.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
   #endif
+  loadConfig();
+  #ifdef TELNET_DEBUGGING_ENABLED
+  telnetChannel.setLogLevel(config.logLevel);
+  #endif
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!Display.begin()) {
@@ -326,7 +580,7 @@ void setup() {
     Log.trace("BMP280 is ready to use");
   } 
   Log.trace("Starting ThingSpeak service...");
-  ThingSpeak.begin(wifiClient);
+  ThingSpeak.begin(client);
   Log.trace("Initializing receiver...");
   initDevices();
   receiver.begin(THRECEIVER_PIN);
@@ -357,7 +611,7 @@ void loop() {
   // Update WiFi status on the display
   Display.updateWifiStatus(WiFi.status() == WL_CONNECTED, WiFi.RSSI());
   // Timeout watchdog
-  for (int n = 0; n < DEVICE_COUNT; n++) {
+  for (int n = 0; n < SENSOR_COUNT; n++) {
     THDevice *d = devices[n];
     d->checkTimeout();
   }
