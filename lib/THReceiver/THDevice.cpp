@@ -34,7 +34,7 @@ THDevice::THDevice(
   _deviceID = deviceID;
   this->displayID = displayID;
   _channelNo = channelNo;
-  _name = name;
+  _name = String(name);
   _correction = correction;
   _hasHumidity = hasHumidity;
   _hasNewPacket = false;
@@ -86,7 +86,41 @@ bool THDevice::hasID(uint8_t id) {
       value.setCharAt(i + 2, '-');
     }
   }
-  return String(name + batt + value);
+  return String(name + batt + getLastTemp());
+}
+
+/**
+ * Prints a display ready status for this device.
+ * 
+ * @param buf the buffer to print to 
+ */
+ String THDevice::getLastTemp() {
+  String value = String("  ___");
+  if (_validTempsCount >= BASELINE_SIZE) {
+    value = formatString("%5.1f", _last.temperature);
+  } else {
+    for (unsigned int i = 0; i < _validTempsCount; i++) {
+      value.setCharAt(i + 2, '-');
+    }
+  }
+  return String(value);
+}
+
+/**
+ * Prints a display ready status for this device.
+ * 
+ * @param buf the buffer to print to 
+ */
+ String THDevice::getLastHumidity() {
+  String value = String("  ___");
+  if (_validTempsCount >= BASELINE_SIZE) {
+    value = formatString("%5.1f", _last.humidity);
+  } else {
+    for (unsigned int i = 0; i < _validTempsCount; i++) {
+      value.setCharAt(i + 2, '-');
+    }
+  }
+  return String(value);
 }
 
 /**
@@ -191,6 +225,12 @@ bool THDevice::isValid(THPacket packet) {
  * @param measurement the measurement to process
  */
 bool THDevice::process(THPacket packet) {
+  Log.trace(printName() + ": " +
+    + "Ch: " + String(packet.channelNo) 
+    + ", Bat: " + (packet.batteryState ? "OK" : "LOW") 
+    + ", T: " + String(packet.temperature) + "°C" 
+    + ", Rh: " + String(packet.humidity) + "%"
+  );
   if (!isValid(packet)) {
     return false;
   }

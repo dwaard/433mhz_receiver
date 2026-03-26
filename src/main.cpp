@@ -18,17 +18,18 @@ an 128x64 pixel I2C OLED display and BMP280
 
 #include "THDevice.h"
 
-#define TELNET_DEBUGGING_ENABLED 0
+#define TELNET_DEBUGGING_ENABLED
 
-#define SERIAL_DEBUGGING_ENABLED 1
+// #define SERIAL_DEBUGGING_ENABLED
 
 // Max 8 devices for now, can be extended in the future
 #define SENSOR_COUNT 8
 
+#define CONFIG_VERSION 1
+
 struct Config {
-  bool initialized = false;
+  int version = 0; // Version control
   uint8_t logLevel = 2; // 0 = NONE, 5 = TRACE, ... 50 = CRITICAL
-  String version = "1.0";
 } config;
 
 DeviceConfig sensorConfigs[SENSOR_COUNT];
@@ -80,19 +81,19 @@ void initConfig() {
   setSensorConfig(5, 0x00, "Kntr", true,  0,   0, 7, 15);
   setSensorConfig(6, 0x16, "BT-G", true,  1,   0, 7, 15);
   setSensorConfig(7, 0xFF, "----", false, 0,   0, 7, 15);
-  config.initialized = true;
+  config.version = CONFIG_VERSION;
   config.logLevel = Logger::INFO;
-  config.version = "1.0";
   saveConfig();
 }
 
-void loadConfig() {
+void loadConfig(int version) {
   EEPROM.begin(CONFIG_EEPROM_SIZE);
   EEPROM.get(CONFIG_EEPROM_ADDRESS, config);
-  if (!config.initialized) {
+  if (config.version != version) {
     initConfig();
   } else {
     EEPROM.get(CONFIG_SENSORS_ADDRESS, sensorConfigs);
+    Log.trace("Loaded config: version=" + String(config.version) + ", logLevel=" + String(config.logLevel));
   }
 }
 
@@ -149,10 +150,13 @@ void connectWifi() {
     Log.info(buffer);
     WiFi.mode(WIFI_STA);
   }
-  status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
-  while(WiFi.status() != WL_CONNECTED) {
-    Log.warning("Conn: " + String(wl_status_to_string(WiFi.status())));
-    delay(5000);     
+  if (WiFi.status() != WL_CONNECTED) {
+    Log.info("Connecting to WiFi...");
+    status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
+    while(WiFi.status() != WL_CONNECTED) {
+      Log.warning("Conn: " + String(wl_status_to_string(WiFi.status())));
+      delay(5000);     
+    }
   }
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "IP: %s", WiFi.localIP().toString().c_str());
@@ -161,6 +165,7 @@ void connectWifi() {
 
 // Setting up Telnet debugging (optional, can impact performance)
 #ifdef TELNET_DEBUGGING_ENABLED
+  #pragma message("Telnet debugging is ENABLED. This may impact performance. Set TELNET_DEBUGGING_ENABLED to 0 to disable.")
   #include "channels/TelnetChannel.h"
   WiFiServer telnetServer(23);
   WiFiClient telnetClient;
@@ -183,11 +188,10 @@ THReceiver receiver = THReceiver();
  * @brief Initializes the THDevice instances for each known device.
  */
 void initDevices() {
-  Log.trace("Creating THDevice instances for each known device");
   for (int i=0; i<SENSOR_COUNT; i++) {
+    Log.trace("Initializing device " + String(i) + " " + String(sensorConfigs[i].name));
     devices[i] = new THDevice(sensorConfigs[i]);
     Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
-    Log.trace("Initialized sensor config for device ID: " + String(sensorConfigs[i].deviceID));
   }
 }
 
@@ -243,7 +247,6 @@ void updateThingSpeak() {
     }
   }
   if (hasUpdates) {
-    Log.trace("Updating ThingSpeak channel...");
     // reconnect if needed
     connectWifi();
     //write to the ThingSpeak channel
@@ -287,8 +290,10 @@ void handleRoot() {
   for (int i = 0; i < SENSOR_COUNT; i++) {
     JsonObject sensor = sensors.add<JsonObject>();
     sensor["deviceID"] = sensorConfigs[i].deviceID;
-    sensor["name"] = sensorConfigs[i].name;
-    // TODO Voeg hier ook actuele meetwaarden toe als je die hebt
+    sensor["name"] = devices[i]->getName();
+    sensor["temperature"] = devices[i]->getLastRecieved().temperature;
+    sensor["humidity"] = devices[i]->getLastRecieved().humidity;
+    sensor["batteryState"] = devices[i]->getLastRecieved().batteryState;
   }
   String response;
   serializeJson(json, response);
@@ -332,7 +337,9 @@ void handlePatchConfig() {
 
   if (json["log-level"].is<uint8_t>()) {
     config.logLevel = json["log-level"].as<uint8_t>();
+    #ifdef TELNET_DEBUGGING_ENABLED
     telnetChannel.setLogLevel(config.logLevel);
+    #endif
   }
 
   saveConfig(); // Sla bijgewerkte configuratie op
@@ -346,27 +353,26 @@ void handlePatchConfig() {
 } 
 
 /**
- * Handles 
+ * Handles reset config requests
  */
 void handleResetConfig() {
   Log.info("Received POST /config/reset request");
-  config.initialized = false;
+  config.version = 0; // Reset version to trigger reinitialization on next load
   saveConfig();
   String response = "{\"status\":\"ok\",\"message\":\"Configuratie gereset!\"}";
   server.send(200, "application/json", response);
 }
 
 /**
- * Handles
+ * Handles GET requests to the /config/sensors endpoint.
  */
 void handleGetConfigSensors() {
   Log.info("Received GET /config/sensors request");
   JsonDocument json;
-  // Voeg hier je sensorconfiguratie toe aan het JSON-object
-  // Bijvoorbeeld:
   JsonArray sensors = json["sensors"].to<JsonArray>();
   for (int i = 0; i < SENSOR_COUNT; i++) {
     JsonObject sensor = sensors.add<JsonObject>();
+    sensor["id"] = i;
     sensor["deviceID"] = sensorConfigs[i].deviceID;
     sensor["name"] = sensorConfigs[i].name;
     sensor["hasHumidity"] = (sensorConfigs[i].settings & 0b00000001) != 0;
@@ -381,7 +387,7 @@ void handleGetConfigSensors() {
 }
 
 /**
- * Handles
+ * Handles PATCH requests to the /config/sensors endpoint.
  */
 void handlePatchConfigSensors() {
   int id = server.pathArg(0).toInt();
@@ -401,11 +407,15 @@ void handlePatchConfigSensors() {
   JsonDocument json;
   DeserializationError error = deserializeJson(json, body);
 
-  if (error || !json["deviceID"].is<uint8_t>()) {
+  if (error) {
     server.send(422, "application/json", "{\"error\":\"Ongeldige JSON\"}");
     return;
   }
 
+  if (!json["deviceID"].is<uint8_t>()) {
+    server.send(422, "application/json", "{\"error\":\"Ongeldige of ontbrekende deviceID\"}");
+    return;
+  }
   sensorConfigs[id].deviceID = json["deviceID"];
   if (json["name"].is<const char*>()) {
     strlcpy(sensorConfigs[id].name, json["name"], sizeof(sensorConfigs[id].name));
@@ -433,6 +443,7 @@ void handlePatchConfigSensors() {
   }
 
   saveConfig(); // Sla bijgewerkte configuratie op
+  devices[id]->setConfig(sensorConfigs[id]); // Update the corresponding THDevice instance with the new config
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
@@ -451,6 +462,8 @@ void handleNotFound() {
  *                                                                            *
  *****************************************************************************/
 #include "SparkFunBME280.h"
+
+bool bmp280Initialized = false;
 // Setting up the BMP280 sensor for local measurements
 #define MY_BMP280_ADDRESS 0x76
 BME280 bmp280; //Uses default I2C address 0x76
@@ -485,13 +498,6 @@ bool handleTelnetConnections() {
 void processPacket(THPacket packet) {
     int i = findDevice(packet.deviceID);
     if (i >= 0) {
-      Log.trace(
-        "Received packet - Device ID: 0x" 
-        + String(packet.deviceID, HEX) + ", Channel: " + String(packet.channelNo) 
-        + ", Battery: " + (packet.batteryState ? "OK" : "LOW") + ", Temperature: " 
-        + String(packet.temperature) + "°C, Humidity: " + String(packet.humidity) 
-        + "%"
-      );
       THDevice *d = devices[i];
       d->process(packet);
       Display.updateDeviceInfo(d->displayID, d->getLastStatus());
@@ -540,14 +546,13 @@ void startInifiniteErrorLoop() {
  */
 void setup() {
   #ifdef SERIAL_DEBUGGING_ENABLED
+    delay(5000); // Wait for system to stabilize and allow time to connect serial monitor after reset
     // Setting up serial logging
     Serial.begin(115200);
     Log.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
+    Log.trace("Serial logging initialized");
   #endif
-  loadConfig();
-  #ifdef TELNET_DEBUGGING_ENABLED
-  telnetChannel.setLogLevel(config.logLevel);
-  #endif
+  loadConfig(CONFIG_VERSION);
   Wire.begin(0, 2);  // set I2C pins (SDA = GPIO0, SCL = GPIO2), default clock is 100kHz
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!Display.begin()) {
@@ -558,30 +563,41 @@ void setup() {
   }
   connectWifi();
   #ifdef TELNET_DEBUGGING_ENABLED
-    // Setting up telnet logging
+    Log.trace("Starting telnet logging...");
     telnetServer.begin();
+    telnetChannel.setLogLevel(config.logLevel);
     Log.addChannel(&telnetChannel);
-    int timeout = 0; bool connected = false;
-    while (!connected && timeout < 100)
+    long unsigned int timeout = millis() + 20000; // Wait up to 20 seconds for a telnet client to connect before proceeding without telnet logging
+    bool connected = false;
+    while (!connected && (millis() < timeout))
     {
       connected = handleTelnetConnections();
-      timeout++;
       delay(100);
     }
   #endif
-  Log.trace("Starting OTA service...");
+
   ArduinoOTA.begin();
-  Log.trace("Initializing receiver and sensors...");
+
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
   //The I2C address must be set before .begin() otherwise the cal values will fail to load.
   if(bmp280.beginI2C() == false) {
     Log.error("BMP280 initialization failed");
   } else {
+    bmp280Initialized = true;
     Log.trace("BMP280 is ready to use");
   } 
-  Log.trace("Starting ThingSpeak service...");
+
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/config", HTTP_GET, handleGetConfig);
+  server.on("/config/reset", HTTP_POST, handleResetConfig);
+  server.on("/config", HTTP_PATCH, handlePatchConfig);
+  server.on("/config/sensors", HTTP_GET, handleGetConfigSensors);
+  server.on(UriBraces("/config/sensors/{}"), HTTP_PATCH, handlePatchConfigSensors);
+  server.onNotFound(handleNotFound);
+  server.begin();
+  Log.trace("HTTP server started on port 80");
+
   ThingSpeak.begin(client);
-  Log.trace("Initializing receiver...");
   initDevices();
   receiver.begin(THRECEIVER_PIN);
   Log.info("Setup completed successfully. System is ready.");
@@ -598,6 +614,13 @@ void setup() {
 void loop() {
   unsigned long now = millis();
   ArduinoOTA.handle();
+  // Handle incoming HTTP requests
+  server.handleClient();
+  // Check for telnet clients
+  if (telnetServer.hasClient()) {
+      telnetClient = telnetServer.accept();
+      Log.info("New telnet client connected");
+  }
   // Check for incoming packets from the 433 MHz receiver
   if (receiver.isAvailable()) {
     THPacket packet = receiver.getLastReceived();
@@ -605,7 +628,13 @@ void loop() {
   }
   // Periodically take local measurements from the BMP280 sensor
   if (now >= nextLocalMeasurement) {
-    processPacket(getLocalMeasurement());
+    if (!bmp280Initialized) {
+      Log.warning("BMP280 sensor not initialized, skipping local measurement");
+    } else {
+      Log.trace("Taking local measurement from BMP280 sensor...");
+      THPacket localPacket = getLocalMeasurement();
+      processPacket(localPacket);
+    }
     nextLocalMeasurement = now + LOCAL_MEASUREMENT_INTERVAL;
   }
   // Update WiFi status on the display

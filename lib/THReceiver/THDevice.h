@@ -94,6 +94,7 @@
   class THDevice {
     public:
       static const bool DISABLE_HUMIDITY = false;
+      static const bool MAX_NAME_LENGTH = 5;
 
       /**
        * Constructor for this class. Some sensors do not send proper humidity 
@@ -117,12 +118,25 @@
             (config.settings & 0b1) == 1
         ) {} ;
 
+      void setConfig(DeviceConfig config) {
+        _deviceID = config.deviceID;
+        displayID = config.displayID;
+        _channelNo = (config.settings >> 1) & 0b11;
+        _name = String(config.name);
+        _correction = config.correction / 10.0;
+        _hasHumidity = (config.settings & 0b1) == 1;
+      }
+
       bool operator == (const THDevice &other);
 
       bool hasID(uint8_t id);
       String printName();
 
       bool process(THPacket measurement);
+      String getName() { return String(_name); }
+      String getLastTemp();
+      String getLastHumidity();
+      String getLastBatteryState();
       String getLastStatus();
       void checkTimeout();
 
@@ -137,7 +151,7 @@
     private:
       uint8_t _deviceID;
       uint8_t _channelNo;
-      const char *_name;
+      String _name;
       float _correction;
       bool _hasHumidity;
 

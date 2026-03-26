@@ -2,13 +2,13 @@
 #include "LogChannel.h"
 
 const char* LogChannel::getLevelStr(const LogEvent& event) {
-    if (event.level >= Logger::CRITICAL) return "[CRIT]";
-    if (event.level >= Logger::ERROR)    return "[ERRR]";
-    if (event.level >= Logger::WARNING)  return "[WARN]";
-    if (event.level >= Logger::INFO)     return "[INFO]";
-    if (event.level >= Logger::DEBUG)    return "[DBUG]";
-    if (event.level >= Logger::TRACE)    return "[TRAC]";
-    return "[UNKN]";
+    if (event.level >= Logger::CRITICAL) return "CRIT";
+    if (event.level >= Logger::ERROR)    return "ERRR";
+    if (event.level >= Logger::WARNING)  return "WARN";
+    if (event.level >= Logger::INFO)     return "INFO";
+    if (event.level >= Logger::DEBUG)    return "DBUG";
+    if (event.level >= Logger::TRACE)    return "TRAC";
+    return "UNKN";
 }
 
 String LogChannel::getDataStr(const LogEvent& event) {

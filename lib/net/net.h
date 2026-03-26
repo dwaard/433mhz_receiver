@@ -4,15 +4,10 @@
  */
 #if defined(ARDUINO_ARCH_ESP8266)
 #include <ESP8266WiFi.h>
-#pragma message("Building for ESP8266 platform...")
-
 #elif defined(ARDUINO_ARCH_AVR)
 #include <WiFi.h>
-#pragma message("Building for Arduino AVR platform...")
-
 #elif defined(ARDUINO_ARCH_ESP32)
 #include <WiFi.h>
-#pragma message("Building for ESP32 platform...")
 #endif
 
 /**
