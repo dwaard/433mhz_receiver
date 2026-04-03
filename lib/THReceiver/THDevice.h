@@ -96,44 +96,20 @@
       static const bool DISABLE_HUMIDITY = false;
       static const bool MAX_NAME_LENGTH = 5;
 
-      /**
-       * Constructor for this class. Some sensors do not send proper humidity 
-       * values. To avoid useless statusupdates, that value can be disabled.
-       */
-      THDevice(
-        uint8_t deviceID, 
-        uint8_t displayID, 
-        uint8_t channelNo,
-        const char *name, 
-        float correction, 
-        bool hasHumidity = true);
+      THDevice(DeviceConfig config);
 
-      THDevice(DeviceConfig config) 
-        : THDevice(
-            config.deviceID,
-            config.displayID, 
-            (config.settings >> 1) & 0b11, 
-            config.name, 
-            config.correction / 10.0, 
-            (config.settings & 0b1) == 1
-        ) {} ;
-
-      void setConfig(DeviceConfig config) {
-        _deviceID = config.deviceID;
-        displayID = config.displayID;
-        _channelNo = (config.settings >> 1) & 0b11;
-        _name = String(config.name);
-        _correction = config.correction / 10.0;
-        _hasHumidity = (config.settings & 0b1) == 1;
-      }
+      void setConfig(DeviceConfig config);
 
       bool operator == (const THDevice &other);
 
       bool hasID(uint8_t id);
       String printName();
 
+      bool hasHumidity() { return _hasHumidity; }
+
       bool process(THPacket measurement);
       String getName() { return String(_name); }
+      unsigned long getLastAge();
       String getLastTemp();
       String getLastHumidity();
       String getLastBatteryState();
@@ -142,9 +118,6 @@
 
       bool hasUpdates();
       THPacket getLastRecieved();
-      bool hasStatusupdates();
-      String getStatusupdates();
-      void resetStatus();
 
       uint8_t displayID;
 
@@ -154,6 +127,8 @@
       String _name;
       float _correction;
       bool _hasHumidity;
+      float _maxValidDelta;
+      unsigned long _maxValidInterval;
 
       THPacket _last;
       unsigned long _prevUpdateTime = 0;
@@ -164,22 +139,16 @@
       unsigned long _lastBatteryNotification = 0;
       const unsigned long BATTERY_NOTIFICATION_INTERVAL = 60 * 60 * 1000;
 
-      String _status = String("");
-
       const unsigned int UPDATE_TIMEOUT = 5 * 60 * 1000;
       const unsigned int BASELINE_TIMEOUT = 15 * 60 * 1000;
       const unsigned int BASELINE_SIZE = 3;
-      const float BASELINE_TEMP_THRESHOLD = 0.7;
+      const float BASELINE_TEMP_THRESHOLD = 1.0;
       float *_baselineTemps = new float[BASELINE_SIZE];
       unsigned int _validTempsCount = 0;
       unsigned int _latestTempBaselineIndex = 0;
       unsigned long _lastReceived = 0;
 
       bool isValid(THPacket packet);
-
-      void addStatus(String msg);
-
-      void addFormattedStatus(const char *format, ...);
       
   };
 #endif

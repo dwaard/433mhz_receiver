@@ -64,7 +64,7 @@ void setSensorConfig(uint8_t index, uint8_t deviceID, const char* name, bool has
 }
 
 void saveConfig() {
-  Log.info("Saving configuration...");
+  Log.trace("Saving configuration...");
   EEPROM.begin(CONFIG_EEPROM_SIZE);
   EEPROM.put(CONFIG_EEPROM_ADDRESS, config);
   EEPROM.put(CONFIG_SENSORS_ADDRESS, sensorConfigs);
@@ -72,7 +72,7 @@ void saveConfig() {
 }
 
 void initConfig() {
-  Log.info("Initializing configuration...");
+  Log.trace("Initializing configuration...");
   setSensorConfig(0, 0xA0, "BT-S", false, 1,   0, 7, 15);
   setSensorConfig(1, 0xE5, "Garg", true,  2, -13, 7, 15);
   setSensorConfig(2, 0x22, "Kkn ", true,  3,   0, 7, 15);
@@ -144,19 +144,21 @@ void connectWifi() {
     }
   }
   // Connect or reconnect to WiFi
-  if (status == WL_IDLE_STATUS) {
+  bool initializing = status == WL_IDLE_STATUS || WiFi.SSID() != ssid;
+  if (initializing) {
     char buffer[32];
     snprintf(buffer, sizeof(buffer), "Init Wifi: %s", ssid);
     Log.info(buffer);
     WiFi.mode(WIFI_STA);
   }
   if (WiFi.status() != WL_CONNECTED) {
-    Log.info("Connecting to WiFi...");
+    Log.trace(initializing ? "Initializing WiFi..." : "Connecting to WiFi...");
     status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
     while(WiFi.status() != WL_CONNECTED) {
       Log.warning("Conn: " + String(wl_status_to_string(WiFi.status())));
       delay(5000);     
     }
+    Display.updateIPAdress(WiFi.localIP().toString());
   }
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "IP: %s", WiFi.localIP().toString().c_str());
@@ -165,7 +167,6 @@ void connectWifi() {
 
 // Setting up Telnet debugging (optional, can impact performance)
 #ifdef TELNET_DEBUGGING_ENABLED
-  #pragma message("Telnet debugging is ENABLED. This may impact performance. Set TELNET_DEBUGGING_ENABLED to 0 to disable.")
   #include "channels/TelnetChannel.h"
   WiFiServer telnetServer(23);
   WiFiClient telnetClient;
@@ -208,6 +209,26 @@ int findDevice(uint8_t deviceID) {
       return n;
   }
   return -1;
+}
+
+/**
+ * @brief Processes an incoming THPacket.
+ */
+void processPacket(THPacket packet) {
+    char sentence[32];
+    sprintf(sentence, "0x%02X|%1d|%s|%4.1f|%3d", 
+      packet.deviceID, packet.channelNo, packet.batteryState? "N" : "L", packet.temperature, packet.humidity
+    );
+    Log.trace(sentence);
+    int i = findDevice(packet.deviceID);
+    if (i >= 0) {
+      THDevice *d = devices[i];
+      d->process(packet);
+      Display.updateDeviceInfo(d->displayID, d->getLastStatus());
+    } else {
+      sprintf(sentence, "UNKN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
+      Log.warning(sentence);
+    }
 }
 
 /******************************************************************************
@@ -282,18 +303,21 @@ ESP8266WebServer server(80);
  * data.
  */
 void handleRoot() {
-  Log.info("Received GET / request");
+  Log.debug("Received GET / request");
   JsonDocument json;
-  // Voeg hier je sensordata toe aan het JSON-object
-  // Bijvoorbeeld:
-  JsonArray sensors = json["sensors"].to<JsonArray>();
+  JsonArray sensors = json.to<JsonArray>();
   for (int i = 0; i < SENSOR_COUNT; i++) {
     JsonObject sensor = sensors.add<JsonObject>();
+    sensor["id"] = i;
+    sensor["displayID"] = sensorConfigs[i].displayID;
     sensor["deviceID"] = sensorConfigs[i].deviceID;
     sensor["name"] = devices[i]->getName();
-    sensor["temperature"] = devices[i]->getLastRecieved().temperature;
-    sensor["humidity"] = devices[i]->getLastRecieved().humidity;
-    sensor["batteryState"] = devices[i]->getLastRecieved().batteryState;
+    sensor["temperature"] = devices[i]->getLastTemp();
+    if (devices[i]->hasHumidity()) {
+      sensor["humidity"] = devices[i]->getLastHumidity();
+    }
+    sensor["batteryState"] = devices[i]->getLastBatteryState();
+    sensor["age"] = devices[i]->getLastAge();
   }
   String response;
   serializeJson(json, response);
@@ -306,7 +330,7 @@ void handleRoot() {
  * It returns a JSON response containing the global config.
  */
 void handleGetConfig() {
-  Log.info("Received GET /config request");
+  Log.debug("Received GET /config request");
   JsonDocument json;
   json["log-level"] = config.logLevel;
   json["version"] = config.version;
@@ -321,7 +345,7 @@ void handleGetConfig() {
  * It updates the global config
  */
 void handlePatchConfig() {
-  Log.info("Received PATCH /config request");
+  Log.debug("Received PATCH /config request");
   if (server.hasArg("plain") == false) {
     server.send(400, "application/json", "{\"error\":\"Geen body\"}");
     return;
@@ -356,7 +380,7 @@ void handlePatchConfig() {
  * Handles reset config requests
  */
 void handleResetConfig() {
-  Log.info("Received POST /config/reset request");
+  Log.debug("Received POST /config/reset request");
   config.version = 0; // Reset version to trigger reinitialization on next load
   saveConfig();
   String response = "{\"status\":\"ok\",\"message\":\"Configuratie gereset!\"}";
@@ -367,13 +391,14 @@ void handleResetConfig() {
  * Handles GET requests to the /config/sensors endpoint.
  */
 void handleGetConfigSensors() {
-  Log.info("Received GET /config/sensors request");
+  Log.debug("Received GET /config/sensors request");
   JsonDocument json;
   JsonArray sensors = json["sensors"].to<JsonArray>();
   for (int i = 0; i < SENSOR_COUNT; i++) {
     JsonObject sensor = sensors.add<JsonObject>();
     sensor["id"] = i;
     sensor["deviceID"] = sensorConfigs[i].deviceID;
+    sensor["displayID"] = sensorConfigs[i].displayID;
     sensor["name"] = sensorConfigs[i].name;
     sensor["hasHumidity"] = (sensorConfigs[i].settings & 0b00000001) != 0;
     sensor["channel"] = (sensorConfigs[i].settings & 0b00000110) >> 1;
@@ -391,7 +416,7 @@ void handleGetConfigSensors() {
  */
 void handlePatchConfigSensors() {
   int id = server.pathArg(0).toInt();
-  Log.info("Received PATCH /config/sensors request for sensor ID: " + String(id));
+  Log.debug("Received PATCH /config/sensors request for sensor ID: " + String(id));
 
   if (id < 0 || id >= SENSOR_COUNT) {
     server.send(404, "application/json", "{\"error\":\"Ongeldige sensor ID\"}");
@@ -412,32 +437,44 @@ void handlePatchConfigSensors() {
     return;
   }
 
-  if (!json["deviceID"].is<uint8_t>()) {
-    server.send(422, "application/json", "{\"error\":\"Ongeldige of ontbrekende deviceID\"}");
-    return;
+  if (json["deviceID"].is<uint8_t>()) {
+    sensorConfigs[id].deviceID = json["deviceID"];
   }
-  sensorConfigs[id].deviceID = json["deviceID"];
+
+  if (json["displayID"].is<uint8_t>()) {
+    sensorConfigs[id].displayID = json["displayID"];
+  }
+
   if (json["name"].is<const char*>()) {
     strlcpy(sensorConfigs[id].name, json["name"], sizeof(sensorConfigs[id].name));
   }
+
   if (json["settings"].is<uint8_t>()) {
     sensorConfigs[id].settings = json["settings"];
   }
+
   // Set the hasHumidity bit (bit 0) in settings
   if (json["hasHumidity"]) {
     sensorConfigs[id].settings |= 0b00000001; // Set bit 0
   } else {
     sensorConfigs[id].settings &= ~0b00000001; // Clear bit 0
   }
+
   if (json["channel"].is<uint8_t>()) {
     // Set the channel bits (bits 1-2) in settings
     sensorConfigs[id].settings &= ~0b00000110; // Clear bits 1-2
     uint8_t channel = json["channel"]; // Get only the last 2 bits for channel
     sensorConfigs[id].settings |= ((channel & 0b00000011) << 1) & 0b00000110; // Set bits 1-2 based on channel value
   }
+
+  if (json["correction"].is<int8_t>()) {
+    sensorConfigs[id].correction = json["correction"];
+  }
+
   if (json["maxValidDelta"].is<uint8_t>()) {
     sensorConfigs[id].maxValidDelta = json["maxValidDelta"];
   }
+
   if (json["maxValidInterval"].is<uint8_t>()) {
     sensorConfigs[id].maxValidInterval = json["maxValidInterval"];
   }
@@ -447,11 +484,31 @@ void handlePatchConfigSensors() {
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
+void handleWheatherStationReport() {
+  Log.debug("Received POST /weather-station-report request");
+  String body = server.arg("plain");  
+  // The body is in form-data. The keys needed are: "tempinf", "humidityin"
+  // We will extract these values and log them
+  float tempf = body.substring(body.indexOf("tempinf=") + 8, body.indexOf("&", body.indexOf("tempinf="))).toFloat();
+  // Convert tempf to Celsius
+  float tempc = (tempf - 32) * 5.0 / 9.0;
+  float humidity = body.substring(body.indexOf("humidityin=") + 11).toFloat();
+  THPacket packet = {};
+  packet.deviceID = 1;
+  packet.channelNo = 0;
+  packet.batteryState = 1;
+  packet.temperature = tempc;
+  packet.humidity = humidity;
+  packet.timestamp = millis();
+  processPacket(packet);
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+}
+
 /**
  * Handles unhandlesd routes
  */
 void handleNotFound() {
-  Log.info("Received 404 request");
+  Log.debug("Received 404 request" + server.uri());
   String message = "File Not Found\n\n";
   server.send(404, "text/plain", message);
 }
@@ -474,7 +531,7 @@ unsigned long nextLocalMeasurement = 0;
 
 #include "DisplayLogChannel.h"
 // Additional log channels
-DisplayLogChannel displayLogChannel(Display, Logger::DEBUG);
+DisplayLogChannel displayLogChannel(Display, Logger::INFO);
 
 #ifdef TELNET_DEBUGGING_ENABLED
 /**
@@ -491,22 +548,6 @@ bool handleTelnetConnections() {
   return false;
 }
 #endif
-
-/**
- * @brief Processes an incoming THPacket.
- */
-void processPacket(THPacket packet) {
-    int i = findDevice(packet.deviceID);
-    if (i >= 0) {
-      THDevice *d = devices[i];
-      d->process(packet);
-      Display.updateDeviceInfo(d->displayID, d->getLastStatus());
-    } else {
-      char sentence[32];
-      sprintf(sentence, "UNKN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
-      Log.warning(sentence);
-    }
-}
 
 /**
  * @brief Takes a local measurement from the BMP280 sensor and returns it as a 
@@ -563,7 +604,7 @@ void setup() {
   }
   connectWifi();
   #ifdef TELNET_DEBUGGING_ENABLED
-    Log.trace("Starting telnet logging...");
+  Log.info("Starting telnet logging, waiting for client to connect...");
     telnetServer.begin();
     telnetChannel.setLogLevel(config.logLevel);
     Log.addChannel(&telnetChannel);
@@ -576,6 +617,7 @@ void setup() {
     }
   #endif
 
+  Log.info("Starting OTA service");
   ArduinoOTA.begin();
 
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
@@ -584,23 +626,32 @@ void setup() {
     Log.error("BMP280 initialization failed");
   } else {
     bmp280Initialized = true;
-    Log.trace("BMP280 is ready to use");
+    Log.info("BMP280 is ready to use");
   } 
 
+  Log.info("Starting HTTP server on port 80");
   server.on("/", HTTP_GET, handleRoot);
   server.on("/config", HTTP_GET, handleGetConfig);
   server.on("/config/reset", HTTP_POST, handleResetConfig);
   server.on("/config", HTTP_PATCH, handlePatchConfig);
   server.on("/config/sensors", HTTP_GET, handleGetConfigSensors);
+  server.on("/data/report/", HTTP_POST, handleWheatherStationReport);
   server.on(UriBraces("/config/sensors/{}"), HTTP_PATCH, handlePatchConfigSensors);
   server.onNotFound(handleNotFound);
   server.begin();
-  Log.trace("HTTP server started on port 80");
 
+  Log.info("Starting ThingSpeak service");
   ThingSpeak.begin(client);
+  Log.info("Initializing devices");
   initDevices();
+
+  Log.info("Starting 433 MHz receiver on interrupt pin " + String(THRECEIVER_PIN));
   receiver.begin(THRECEIVER_PIN);
+
   Log.info("Setup completed successfully. System is ready.");
+  delay(1000); // Short delay to ensure all setup logs are sent before starting normal operation
+  Display.startNormal();
+  displayLogChannel.setLogLevel(Logger::WARNING); // Only show warnings and above on the display to avoid cluttering it with too much information
 }
 
 /**
@@ -631,7 +682,6 @@ void loop() {
     if (!bmp280Initialized) {
       Log.warning("BMP280 sensor not initialized, skipping local measurement");
     } else {
-      Log.trace("Taking local measurement from BMP280 sensor...");
       THPacket localPacket = getLocalMeasurement();
       processPacket(localPacket);
     }

@@ -66,11 +66,11 @@ protected:
      * @param event The LogEvent to format
      */
     String formatEventDefault(const LogEvent& event) {
-        String result = "[" + String(getLevelStr(event)) + "] [" + String(event.timestamp) + "] ";
+        String result = "[" + String(getLevelStr(event)) + "|" + String(event.timestamp);
         if (event.code != 100) {
-            result += "(" + String(event.code) + ")";
+            result += "|" + String(event.code);
         }
-        result += " " + getDataStr(event);
+        result += "] " + getDataStr(event);
         return result;
     }
 

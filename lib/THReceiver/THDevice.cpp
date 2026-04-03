@@ -9,37 +9,29 @@ String formatString(const char *format, ...) {
     return String(buffer);
 }
 
+String formatTemperature(float temperature) {
+    return formatString("%5.1f", temperature);
+}
 
-/**
- * Constructor for this class
- * 
- * Some sensors do not send proper humidity values. To avoid useless statusupdates, 
- * that value can be disabled.
- * 
- * @param deviceID the ID of the device. Normally a number between 0 and 0xFF
- * @param displayID the ID to use for display purposes
- * @param channelNo should be 1, 2 or 4
- * @param name human readable name. Basically which temperature and humidity this
- *              device monitors
- * @param correction temperature correction. A simple calibration feature
- * @param hasHumidity `false` to disable the humidity values (default `true`)
- */
-THDevice::THDevice(
-        uint8_t deviceID, 
-        uint8_t displayID, 
-        uint8_t channelNo,
-        const char *name, 
-        float correction, 
-        bool hasHumidity) {
-  _deviceID = deviceID;
-  this->displayID = displayID;
-  _channelNo = channelNo;
-  _name = String(name);
-  _correction = correction;
-  _hasHumidity = hasHumidity;
+String formatHumidity(float humidity) {
+    return formatString("%3.0f", humidity);
+}
+
+THDevice::THDevice(DeviceConfig config) {
+  setConfig(config);
   _hasNewPacket = false;
   _last.timestamp = 0; // Considered as an empty THPacket
-  resetStatus();
+}
+
+void THDevice::setConfig(DeviceConfig config) {
+  _deviceID = config.deviceID;
+  displayID = config.displayID;
+  _channelNo = (config.settings >> 1) & 0b11;
+  _name = String(config.name);
+  _correction = config.correction / 10.0;
+  _hasHumidity = (config.settings & 0b1) == 1;
+  _maxValidDelta = config.maxValidDelta / 10.0;
+  _maxValidInterval = config.maxValidInterval * 60 * 1000; // Convert minutes to milliseconds
 }
 
 /**
@@ -64,7 +56,9 @@ bool THDevice::hasID(uint8_t id) {
  * @param buf the buffer to print to 
  */
  String THDevice::printName() {
-  return String(String(_name) + " (0x" + String(_deviceID, HEX) + ")");
+  return String(String(_name) 
+    + " (0x" + (_deviceID < 0x10 ? "0" : "") 
+    + String(_deviceID, HEX) + ")");
 }
 
 /**
@@ -94,14 +88,37 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::getLastTemp() {
-  String value = String("  ___");
+ unsigned long THDevice::getLastAge() {
   if (_validTempsCount >= BASELINE_SIZE) {
-    value = formatString("%5.1f", _last.temperature);
-  } else {
-    for (unsigned int i = 0; i < _validTempsCount; i++) {
-      value.setCharAt(i + 2, '-');
-    }
+    return (millis() - _last.timestamp) / 1000;
+  }
+  return -1;
+}
+
+/**
+ * Prints a display ready status for this device.
+ * 
+ * @param buf the buffer to print to 
+ */
+ String THDevice::getLastBatteryState() {
+  if (_validTempsCount >= BASELINE_SIZE) {
+    return _last.batteryState ? "OK" : "LO";
+  }
+  return String("NaN");
+}
+
+/**
+ * Prints a display ready status for this device.
+ * 
+ * @param buf the buffer to print to 
+ */
+ String THDevice::getLastTemp() {
+  if (_validTempsCount >= BASELINE_SIZE) {
+    return formatTemperature(_last.temperature);
+  }
+  String value = String("___");
+  for (unsigned int i = 0; i < _validTempsCount; i++) {
+    value.setCharAt(i + 2, '-');
   }
   return String(value);
 }
@@ -114,7 +131,7 @@ bool THDevice::hasID(uint8_t id) {
  String THDevice::getLastHumidity() {
   String value = String("  ___");
   if (_validTempsCount >= BASELINE_SIZE) {
-    value = formatString("%5.1f", _last.humidity);
+    value = formatHumidity(_last.humidity);
   } else {
     for (unsigned int i = 0; i < _validTempsCount; i++) {
       value.setCharAt(i + 2, '-');
@@ -131,7 +148,7 @@ void THDevice::checkTimeout() {
   unsigned long now = millis();
   if (_lastReceived != 0) {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
-    if (tdiff > BASELINE_TIMEOUT && _validTempsCount > 0) {
+    if (tdiff > _maxValidInterval && _validTempsCount > 0) {
       // Reset the baseline on first time or timeout
       Log.warning(printName() + "Timed out after " + String(tdiff) + " ms");
       if (_validTempsCount > 1) {
@@ -152,43 +169,38 @@ void THDevice::checkTimeout() {
  */
 bool THDevice::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
-    Log.error(printName() + ": invalid device ID. Expected: 0x" + String(_deviceID, HEX) + ", got: 0x" + String(packet.deviceID, HEX));
-    addFormattedStatus("ongeldig deviceID: 0x%X", packet.deviceID);
+    Log.error(printName() + ": invalid deviceID. Exp:0x" + String(_deviceID, HEX) + ", got: 0x" + String(packet.deviceID, HEX));
     return false;
   }
   if (packet.channelNo > _channelNo) {
     if (packet.channelNo != _prevUpdateChannel) {
-      Log.warning(printName() + ": invalid channel no.: " + String(packet.channelNo));
-      addFormattedStatus("ongeldig channel no.: %i", packet.channelNo);
+      Log.debug(printName() + ": invalid channel no.: " + String(packet.channelNo));
       _prevUpdateChannel = packet.channelNo;
     }
     // return false;
   }
   if (_hasHumidity && packet.humidity > 100) {
     if (packet.humidity != _prevUpdateHum) {
-      Log.warning(printName() + ": invalid humidity. Humidity: " + String(packet.humidity) + "%");
-      addFormattedStatus("ongeldige humidity: %i", packet.humidity);
+      Log.debug(printName() + ": invalid humidity. Humidity: " + String(packet.humidity) + "%");
       _prevUpdateHum = packet.humidity;
     }
     // return false;
   }
-  if (packet.temperature < -50 || packet.temperature > 50) {
-    addFormattedStatus("ongeldige temp.: %.1f", packet.temperature);
-    Log.warning(printName() + ": Invalid temperature. Temperature: " + String(packet.temperature) + "°C");
+  float tempWithCorrection = packet.temperature + _correction;
+  if (tempWithCorrection < -50 || tempWithCorrection > 50) {
+    Log.debug(printName() + ": Invalid temperature. Temperature: " + formatTemperature(tempWithCorrection) + "°C");
     return false;
   }
   // The baseline temperature validator
   if (_validTempsCount == 0) {
-    Log.trace(printName() + ": No baseline yet. Accepting first temp: " + String(packet.temperature) + "°C");
-    addStatus("start baseline");
+    Log.debug(printName() + ": No baseline yet. Accepting first temp: " + formatTemperature(tempWithCorrection) + "°C");
   } else {
     // Compute the diff between the latest and previous temp.
     float prevTemp = _baselineTemps[_latestTempBaselineIndex];
-    float diff = abs(prevTemp - packet.temperature);
-    // Serial.println("  abs(" + String(prevTemp) + " - " + String(packet.temperature) + ") = " + String(diff));
-    if (diff > BASELINE_TEMP_THRESHOLD) {
-      Log.debug(printName() + ": Temperature change is too large. Latest temp: " + String(packet.temperature) + "°C, previous temp: " + String(prevTemp) + "°C, diff: " + String(diff) + "°C");
-      addFormattedStatus("temp.verandering te groot: %.1f", diff);
+    float diff = abs(prevTemp - tempWithCorrection);
+    // Serial.println("  abs(" + String(prevTemp) + " - " + String(tempWithCorrection) + ") = " + String(diff));
+    if (diff > _maxValidDelta) {
+      Log.debug(printName() + ": Temp diff out of range:" + String(diff) + ". Latest:" + formatTemperature(tempWithCorrection) + ", prev:" + formatTemperature(prevTemp));
       if (_validTempsCount >= BASELINE_SIZE) {
         // return false when the baseline is filled
         return false;
@@ -202,7 +214,7 @@ bool THDevice::isValid(THPacket packet) {
   }
   // Now, the recieved temp is either the first or the "same" as the previous
   // Add it to the baseline.
-  _baselineTemps[_latestTempBaselineIndex] = packet.temperature;
+  _baselineTemps[_latestTempBaselineIndex] = tempWithCorrection;
   _lastReceived = packet.timestamp;
   _validTempsCount++;
   if (_validTempsCount < BASELINE_SIZE) {
@@ -210,9 +222,8 @@ bool THDevice::isValid(THPacket packet) {
     return false;
   }
   if (_validTempsCount == BASELINE_SIZE) {
-    Log.info(printName() + ": Baseline is ready. Baseline temps: " 
-      + String(_baselineTemps[0]) + ", " + String(_baselineTemps[1]) + ", " + String(_baselineTemps[2]));
-    addStatus("baseline klaar");
+    Log.info(printName() + ": Baseline ready:" 
+      + formatTemperature(_baselineTemps[0]) + "," + formatTemperature(_baselineTemps[1]) + "," + formatTemperature(_baselineTemps[2]));
   }
   return true;
 }
@@ -225,12 +236,6 @@ bool THDevice::isValid(THPacket packet) {
  * @param measurement the measurement to process
  */
 bool THDevice::process(THPacket packet) {
-  Log.trace(printName() + ": " +
-    + "Ch: " + String(packet.channelNo) 
-    + ", Bat: " + (packet.batteryState ? "OK" : "LOW") 
-    + ", T: " + String(packet.temperature) + "°C" 
-    + ", Rh: " + String(packet.humidity) + "%"
-  );
   if (!isValid(packet)) {
     return false;
   }
@@ -240,12 +245,17 @@ bool THDevice::process(THPacket packet) {
     unsigned long now = millis();
     unsigned long diff = now - _lastBatteryNotification;
     if (diff > BATTERY_NOTIFICATION_INTERVAL) {
-      Log.warning(printName() + ": Low battery. Last battery notification was " + String(diff) + " ms ago.");
-      addStatus("batterij laag");
+      Log.warning(printName() + ": Low battery. Last notification was " + String(diff) + " ms ago.");
       _lastBatteryNotification = now;
     }
   }
   _hasNewPacket = true;
+  Log.debug(printName() + ":" +
+    + "Ch:" + String(packet.channelNo) 
+    + ", Bat:" + (getLastBatteryState() ? "OK" : "LO") 
+    + ", T:" + getLastTemp() + "°C"
+    + ( _hasHumidity ? ", Rh:" + getLastHumidity() + "%" : "" )
+  );
   return true;
 }
 
@@ -270,35 +280,4 @@ THPacket THDevice::getLastRecieved() {
   _prevUpdateTime = _last.timestamp;
   _hasNewPacket = false;
   return _last;
-}
-
-void THDevice::addStatus(String msg) {
-    if (_status.length() == 0) {
-    _status = String(printName() + ": " + msg);
-  } else {
-    _status.concat("; " + msg);
-  }
-  Serial.print("  ");
-  Serial.println(msg);
-}
-
-void THDevice::addFormattedStatus(const char *format, ...) {
-    char buffer[128]; // Adjust size as needed
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    addStatus(buffer);
-}
-
-bool THDevice::hasStatusupdates() {
-  return _status.length() > 0;
-}
-
-String THDevice::getStatusupdates() {
-  return _status;
-}
-
-void THDevice::resetStatus() {
-  _status = String("");
 }
