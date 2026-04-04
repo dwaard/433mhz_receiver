@@ -154,6 +154,7 @@ void connectWifi() {
   if (WiFi.status() != WL_CONNECTED) {
     Log.trace(initializing ? "Initializing WiFi..." : "Connecting to WiFi...");
     status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
+    delay(1000); // Wait for the wifi module to initialize and attempt connection
     while(WiFi.status() != WL_CONNECTED) {
       Log.warning("Conn: " + String(wl_status_to_string(WiFi.status())));
       delay(5000);     
@@ -184,17 +185,6 @@ void connectWifi() {
 // Setting up the receiver and devices
 #define THRECEIVER_PIN 3
 THReceiver receiver = THReceiver();
-
-/**
- * @brief Initializes the THDevice instances for each known device.
- */
-void initDevices() {
-  for (int i=0; i<SENSOR_COUNT; i++) {
-    Log.trace("Initializing device " + String(i) + " " + String(sensorConfigs[i].name));
-    devices[i] = new THDevice(sensorConfigs[i]);
-    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
-  }
-}
 
 /**
  * @brief Finds the index of the THDevice with the specified device ID.
@@ -587,9 +577,9 @@ void startInifiniteErrorLoop() {
  */
 void setup() {
   #ifdef SERIAL_DEBUGGING_ENABLED
-    delay(5000); // Wait for system to stabilize and allow time to connect serial monitor after reset
     // Setting up serial logging
     Serial.begin(115200);
+    delay(5000); // Wait for system to stabilize and allow time to connect serial monitor after reset
     Log.addChannel(new SerialChannel(SERIAL_DEBUGGING_LEVEL));
     Log.trace("Serial logging initialized");
   #endif
@@ -604,7 +594,7 @@ void setup() {
   }
   connectWifi();
   #ifdef TELNET_DEBUGGING_ENABLED
-  Log.info("Starting telnet logging, waiting for client to connect...");
+    Log.info("Starting telnet logging, waiting for client to connect...");
     telnetServer.begin();
     telnetChannel.setLogLevel(config.logLevel);
     Log.addChannel(&telnetChannel);
@@ -623,7 +613,7 @@ void setup() {
   bmp280.setI2CAddress(MY_BMP280_ADDRESS);
   //The I2C address must be set before .begin() otherwise the cal values will fail to load.
   if(bmp280.beginI2C() == false) {
-    Log.error("BMP280 initialization failed");
+    Log.error("BMP280 init failed");
   } else {
     bmp280Initialized = true;
     Log.info("BMP280 is ready to use");
@@ -642,8 +632,13 @@ void setup() {
 
   Log.info("Starting ThingSpeak service");
   ThingSpeak.begin(client);
+
   Log.info("Initializing devices");
-  initDevices();
+  for (int i=0; i<SENSOR_COUNT; i++) {
+    Log.trace("Initializing device " + String(i) + " " + String(sensorConfigs[i].name));
+    devices[i] = new THDevice(sensorConfigs[i]);
+    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
+  }
 
   Log.info("Starting 433 MHz receiver on interrupt pin " + String(THRECEIVER_PIN));
   receiver.begin(THRECEIVER_PIN);
