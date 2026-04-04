@@ -95,50 +95,110 @@
     public:
       static const bool DISABLE_HUMIDITY = false;
       static const bool MAX_NAME_LENGTH = 5;
+      
+      static const uint8_t STATE_IDLE = 0;
+      static const uint8_t STATE_BASELINE = 1;
+      static const uint8_t STATE_ACTIVE = 2;
+      static const uint8_t STATE_TIMEOUT = 3;
+      static const uint8_t STATE_ERROR = 0xFF;
 
-      THSensor(THSensorConfig config);
+      THSensor(THSensorConfig *config) {
+        this->config = config;
+        _hasNewPacket = false;
+        _last.timestamp = 0; // Considered as an empty THPacket
+      }
 
-      void setConfig(THSensorConfig config);
+      /**
+       * Overloads the `==` operator. Checks if a this deviceID equals the given devices'.
+       */
+      bool operator == (THSensor &other) {
+        return getDeviceID() == other.getDeviceID();
+      }
 
-      bool operator == (const THSensor &other);
+      // Getters for the device configuration.
+      uint8_t getDeviceID() { return config->deviceID; }
+      uint8_t getDisplayID() { return config->displayID; }
+      String getName() { return String(config->name); }
+      uint8_t getChannelNo() { return (config->settings >> 1) & 0b11; }
+      bool hasHumidity() { return (config->settings & 0b1) == 1; }
+      float getCorrection() { return config->correction / 10.0; }
+      float getMaxValidDelta() { return config->maxValidDelta / 10.0; }
+      unsigned long getMaxValidInterval() { return config->maxValidInterval * 60 * 1000; }
+      uint8_t getState() { return _state; }
 
-      bool hasID(uint8_t id);
+      // Methods for the main processing logic of this device.
+      bool process(THPacket measurement);
+      void checkTimeout();
+      bool hasUpdates();
+
+      // Getters for the latest measurement and status of this device.
+      unsigned long getLastReceived() {
+        if (_state != STATE_ACTIVE) {
+          return 0;
+        }
+        return _last.timestamp;
+      }
+
+      float getLastTemp() {
+        if (_state != STATE_ACTIVE) {
+          return NAN;
+        }
+        return _last.temperature + getCorrection();
+      }
+
+      float getLastHumidity() {
+        if (_state != STATE_ACTIVE || !hasHumidity()) {
+          return NAN;
+        }
+        return _last.humidity;
+      }
+
+      bool getLastBatteryState() {
+        if (_state != STATE_ACTIVE) {
+          return false;
+        }
+        return _last.batteryState;
+      }
+
+      unsigned long getLastAge() {
+        if (_state != STATE_ACTIVE) {
+          return -1;
+        }
+        return (millis() - _last.timestamp) / 1000;
+      }
+
+      unsigned int getBaselineSize() {
+        return _validTempsCount;
+      }
+
+      /**
+       * Returns `true` if this device has the specified ID. Otherwise it returns `false`
+       * 
+       * @param id the deviceID to check
+       */
+      bool hasID(uint8_t id) {
+        return getDeviceID() == id;
+      }
+
       String printName();
 
-      bool hasHumidity() { return _hasHumidity; }
-
-      bool process(THPacket measurement);
-      String getName() { return String(_name); }
-      unsigned long getLastAge();
-      String getLastTemp();
-      String getLastHumidity();
-      String getLastBatteryState();
-      String getLastStatus();
-      void checkTimeout();
-
-      bool hasUpdates();
-      THPacket getLastRecieved();
-
-      uint8_t displayID;
-
     private:
-      uint8_t _deviceID;
-      uint8_t _channelNo;
-      String _name;
-      float _correction;
-      bool _hasHumidity;
-      float _maxValidDelta;
-      unsigned long _maxValidInterval;
+      // Pointer to the config of this device.
+      THSensorConfig *config;  
 
       THPacket _last;
+
+      // State variables for processing and validating measurements
+      uint8_t _state = STATE_IDLE;
+
       unsigned long _prevUpdateTime = 0;
       float _prevUpdateTemp;
       uint8_t _prevUpdateHum = -1;
       uint8_t _prevUpdateChannel = -1;
       bool _hasNewPacket;
       unsigned long _lastBatteryNotification = 0;
-      const unsigned long BATTERY_NOTIFICATION_INTERVAL = 60 * 60 * 1000;
 
+      const unsigned long BATTERY_NOTIFICATION_INTERVAL = 60 * 60 * 1000;
       const unsigned int UPDATE_TIMEOUT = 5 * 60 * 1000;
       const unsigned int BASELINE_TIMEOUT = 15 * 60 * 1000;
       const unsigned int BASELINE_SIZE = 3;
@@ -149,6 +209,7 @@
       unsigned long _lastReceived = 0;
 
       bool isValid(THPacket packet);
+      bool processBaseline(THPacket packet);
       
   };
 #endif

@@ -20,8 +20,22 @@ bool THDisplay::begin() {
   return succeeded;
 }
 
-void THDisplay::updateDeviceInfo(unsigned int index, String status) {
-  devices[index] = status;
+void THDisplay::updateDeviceInfo(THSensor *sensor) {
+  String name = sensor->getName();
+  String batt = " ";
+  String value = String("  ___");
+  if (sensor->getState() == THSensor::STATE_ACTIVE) {
+    if (!sensor->getLastBatteryState()) batt = "X";
+    char buffer[7]; // Adjust size as needed
+    snprintf(buffer, sizeof(buffer), "%5.1f", sensor->getLastTemp());
+    value = String(buffer);
+  } else if (sensor->getState() == THSensor::STATE_BASELINE) {
+    for (unsigned int i = 0; i < sensor->getBaselineSize(); i++) {
+      value.setCharAt(i + 2, '-');
+    }
+  }
+
+  devices[sensor->getDeviceID()] = sensor->printName() + batt + value;
   render();
 }
 
@@ -115,4 +129,3 @@ void THDisplay::println(String l) {
   lineptr = (lineptr + 1) % MAX_LOG_LINES_BOOT;
   render();
 }
-

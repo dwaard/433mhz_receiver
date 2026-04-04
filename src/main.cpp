@@ -214,7 +214,7 @@ void processPacket(THPacket packet) {
     if (i >= 0) {
       THSensor *d = sensors[i];
       d->process(packet);
-      Display.updateDeviceInfo(d->displayID, d->getLastStatus());
+      Display.updateDeviceInfo(d);
     } else {
       sprintf(sentence, "UNKN: 0x%02X %4.1f", packet.deviceID, packet.temperature);
       Log.warning(sentence);
@@ -248,8 +248,7 @@ void updateThingSpeak() {
   for (int n = 0; n < SENSOR_COUNT; n++) {
     THSensor *d = sensors[n];
     if (d->hasUpdates()) {
-      THPacket m = d->getLastRecieved();
-      ThingSpeak.setField(n + 1, m.temperature);
+      ThingSpeak.setField(n + 1, d->getLastTemp());
       hasUpdates = true;
     }
     if (thingSpeakLogChannel.hasStatusToSend()) {
@@ -470,7 +469,6 @@ void handlePatchConfigSensors() {
   }
 
   saveConfig(); // Sla bijgewerkte configuratie op
-  sensors[id]->setConfig(sensorConfigs[id]); // Update the corresponding THDevice instance with the new config
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
@@ -636,8 +634,8 @@ void setup() {
   Log.info("Initializing devices");
   for (int i=0; i<SENSOR_COUNT; i++) {
     Log.trace("Initializing device " + String(i) + " " + String(sensorConfigs[i].name));
-    sensors[i] = new THSensor(sensorConfigs[i]);
-    Display.updateDeviceInfo(sensors[i]->displayID, sensors[i]->getLastStatus());
+    sensors[i] = new THSensor(&sensorConfigs[i]);
+    Display.updateDeviceInfo(sensors[i]);
   }
 
   Log.info("Starting 433 MHz receiver on interrupt pin " + String(THRECEIVER_PIN));

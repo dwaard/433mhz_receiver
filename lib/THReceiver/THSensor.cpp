@@ -17,38 +17,18 @@ String formatHumidity(float humidity) {
     return formatString("%3.0f", humidity);
 }
 
-THSensor::THSensor(THSensorConfig config) {
-  setConfig(config);
-  _hasNewPacket = false;
-  _last.timestamp = 0; // Considered as an empty THPacket
-}
+// void THSensor::setConfig(THSensorConfig config) {
+//   _deviceID = config.deviceID;
+//   displayID = config.displayID;
+//   _channelNo = (config.settings >> 1) & 0b11;
+//   _name = String(config.name);
+//   _correction = config.correction / 10.0;
+//   _hasHumidity = (config.settings & 0b1) == 1;
+//   _maxValidDelta = config.maxValidDelta / 10.0;
+//   _maxValidInterval = config.maxValidInterval * 60 * 1000; // Convert minutes to milliseconds
+// }
 
-void THSensor::setConfig(THSensorConfig config) {
-  _deviceID = config.deviceID;
-  displayID = config.displayID;
-  _channelNo = (config.settings >> 1) & 0b11;
-  _name = String(config.name);
-  _correction = config.correction / 10.0;
-  _hasHumidity = (config.settings & 0b1) == 1;
-  _maxValidDelta = config.maxValidDelta / 10.0;
-  _maxValidInterval = config.maxValidInterval * 60 * 1000; // Convert minutes to milliseconds
-}
 
-/**
- * Overloads the `==` operator. Checks if a this deviceID equals the given devices'.
- */
-bool THSensor::operator == (const THSensor &other) {
-  return _deviceID == other._deviceID;
-}
-
-/**
- * Returns `true` if this device has the specified ID. Otherwise it returns `false`
- * 
- * @param id the deviceID to check
- */
-bool THSensor::hasID(uint8_t id) {
-  return _deviceID == id;
-}
 
 /**
  * Prints a human readable name of this device to the specified buffer.
@@ -56,88 +36,9 @@ bool THSensor::hasID(uint8_t id) {
  * @param buf the buffer to print to 
  */
  String THSensor::printName() {
-  return String(String(_name) 
-    + " (0x" + (_deviceID < 0x10 ? "0" : "") 
-    + String(_deviceID, HEX) + ")");
-}
-
-/**
- * Prints a display ready status for this device.
- * 
- * @param buf the buffer to print to 
- */
- String THSensor::getLastStatus() {
-  String name = formatString("%4s", _name);
-  String batt = " ";
-  if (_validTempsCount >= BASELINE_SIZE && !_last.batteryState) {
-    batt = "X";
-  }
-  String value = String("  ___");
-  if (_validTempsCount >= BASELINE_SIZE) {
-    value = formatString("%5.1f", _last.temperature);
-  } else {
-    for (unsigned int i = 0; i < _validTempsCount; i++) {
-      value.setCharAt(i + 2, '-');
-    }
-  }
-  return String(name + batt + getLastTemp());
-}
-
-/**
- * Prints a display ready status for this device.
- * 
- * @param buf the buffer to print to 
- */
- unsigned long THSensor::getLastAge() {
-  if (_validTempsCount >= BASELINE_SIZE) {
-    return (millis() - _last.timestamp) / 1000;
-  }
-  return -1;
-}
-
-/**
- * Prints a display ready status for this device.
- * 
- * @param buf the buffer to print to 
- */
- String THSensor::getLastBatteryState() {
-  if (_validTempsCount >= BASELINE_SIZE) {
-    return _last.batteryState ? "OK" : "LO";
-  }
-  return String("NaN");
-}
-
-/**
- * Prints a display ready status for this device.
- * 
- * @param buf the buffer to print to 
- */
- String THSensor::getLastTemp() {
-  if (_validTempsCount >= BASELINE_SIZE) {
-    return formatTemperature(_last.temperature);
-  }
-  String value = String("___");
-  for (unsigned int i = 0; i < _validTempsCount; i++) {
-    value.setCharAt(i + 2, '-');
-  }
-  return String(value);
-}
-
-/**
- * Prints a display ready status for this device.
- * 
- * @param buf the buffer to print to 
- */
- String THSensor::getLastHumidity() {
-  String value = String("  ___");
-  if (_validTempsCount >= BASELINE_SIZE) {
-    value = formatHumidity(_last.humidity);
-  } else {
-    for (unsigned int i = 0; i < _validTempsCount; i++) {
-      value.setCharAt(i + 2, '-');
-    }
-  }
-  return String(value);
+  return String(String(getName()) 
+    + " (0x" + (getDeviceID() < 0x10 ? "0" : "") 
+    + String(getDeviceID(), HEX) + ")");
 }
 
 /**
@@ -148,14 +49,15 @@ void THSensor::checkTimeout() {
   unsigned long now = millis();
   if (_lastReceived != 0) {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
-    if (tdiff > _maxValidInterval && _validTempsCount > 0) {
+    if (tdiff > getMaxValidInterval() && _validTempsCount > 0) {
       // Reset the baseline on first time or timeout
-      Log.warning(printName() + "Timed out after " + String(tdiff) + " ms");
+      Log.warning(printName() + "Timed out after " + String(tdiff) + " ms"
+    + (_validTempsCount > 1 ? ". Baseline reset." : ""));
       if (_validTempsCount > 1) {
         _validTempsCount = 0;
         _latestTempBaselineIndex = 0;
-        Log.info(printName() +  ": baseline reset.");
       }
+      _state = STATE_TIMEOUT;
       _lastReceived = now;
     }
   }
@@ -168,53 +70,57 @@ void THSensor::checkTimeout() {
  * @return `true` if the packet is valid
  */
 bool THSensor::isValid(THPacket packet) {
-  if (packet.deviceID != _deviceID) {
-    Log.error(printName() + ": invalid deviceID. Exp:0x" + String(_deviceID, HEX) + ", got: 0x" + String(packet.deviceID, HEX));
-    return false;
+  if (packet.deviceID != getDeviceID()) {
+    Log.error(printName() + ": invalid deviceID. Exp:0x" + String(getDeviceID(), HEX) + ", got: 0x" + String(packet.deviceID, HEX));
+    return false; // Reject the packet. This must be a programming error!
   }
-  if (packet.channelNo > _channelNo) {
-    if (packet.channelNo != _prevUpdateChannel) {
+  if (packet.channelNo > getChannelNo()) {
+    if (packet.channelNo != getChannelNo()) {
       Log.debug(printName() + ": invalid channel no.: " + String(packet.channelNo));
-      _prevUpdateChannel = packet.channelNo;
     }
-    // return false;
+    // return false; // Reject the packet. It might contain invalid data
   }
-  if (_hasHumidity && packet.humidity > 100) {
+  if (hasHumidity() && packet.humidity > 100) {
     if (packet.humidity != _prevUpdateHum) {
       Log.debug(printName() + ": invalid humidity. Humidity: " + String(packet.humidity) + "%");
       _prevUpdateHum = packet.humidity;
     }
-    // return false;
+    // return false; // Reject the packet. It might contain invalid data
   }
-  float tempWithCorrection = packet.temperature + _correction;
+  float tempWithCorrection = packet.temperature + getCorrection();
   if (tempWithCorrection < -50 || tempWithCorrection > 50) {
     Log.debug(printName() + ": Invalid temperature. Temperature: " + formatTemperature(tempWithCorrection) + "°C");
-    return false;
+    return false; // Reject the packet. It contains invalid data
   }
-  // The baseline temperature validator
+
+  if (_state == STATE_BASELINE || _state == STATE_ACTIVE) {
+    // In this state, we have a _last packet and can validate temp diff
+    float prevTemp = _last.temperature;
+    float diff = abs(prevTemp - tempWithCorrection);
+    if (diff > getMaxValidDelta()) {
+      Log.debug(printName() + ": Temp diff out of range:" + String(diff) + ". Latest:" + formatTemperature(tempWithCorrection) + ", prev:" + formatTemperature(prevTemp));
+      return false; // Reject the packet. It contains invalid data
+    }
+    // TODO validate humidity diff. We need an extra config parameter for this, which is currently not available.
+  }
+  return true; // Accept the packet
+}
+
+bool THSensor::processBaseline(THPacket packet) {
+  float tempWithCorrection = packet.temperature + getCorrection();
   if (_validTempsCount == 0) {
     Log.debug(printName() + ": No baseline yet. Accepting first temp: " + formatTemperature(tempWithCorrection) + "°C");
-  } else {
-    // Compute the diff between the latest and previous temp.
-    float prevTemp = _baselineTemps[_latestTempBaselineIndex];
-    float diff = abs(prevTemp - tempWithCorrection);
-    // Serial.println("  abs(" + String(prevTemp) + " - " + String(tempWithCorrection) + ") = " + String(diff));
-    if (diff > _maxValidDelta) {
-      Log.debug(printName() + ": Temp diff out of range:" + String(diff) + ". Latest:" + formatTemperature(tempWithCorrection) + ", prev:" + formatTemperature(prevTemp));
-      if (_validTempsCount >= BASELINE_SIZE) {
-        // return false when the baseline is filled
-        return false;
-      }
-      // when the baseline is still filling, reset the baseline
-      _validTempsCount = 0;
-    }
-
-    // Finally, increase the latest index before a new temp is added.
-    _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
+    _state = STATE_BASELINE;
+    return true;
+  } 
+  if (_validTempsCount < BASELINE_SIZE) {
+    Log.debug(printName() + ": Baseline not filled yet. Accepting temp #" + String(_validTempsCount + 1) + ": " + formatTemperature(tempWithCorrection) + "°C");
   }
-  // Now, the recieved temp is either the first or the "same" as the previous
+  // Finally, increase the latest index before a new temp is added.
+  _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
   // Add it to the baseline.
   _baselineTemps[_latestTempBaselineIndex] = tempWithCorrection;
+  // Lastereceived, for the timeout logic
   _lastReceived = packet.timestamp;
   _validTempsCount++;
   if (_validTempsCount < BASELINE_SIZE) {
@@ -225,6 +131,7 @@ bool THSensor::isValid(THPacket packet) {
     Log.info(printName() + ": Baseline ready:" 
       + formatTemperature(_baselineTemps[0]) + "," + formatTemperature(_baselineTemps[1]) + "," + formatTemperature(_baselineTemps[2]));
   }
+  _state = STATE_ACTIVE;
   return true;
 }
 
@@ -240,22 +147,24 @@ bool THSensor::process(THPacket packet) {
     return false;
   }
   _last = packet;
-  _last.temperature += _correction;
-  if (!packet.batteryState) {
-    unsigned long now = millis();
-    unsigned long diff = now - _lastBatteryNotification;
-    if (diff > BATTERY_NOTIFICATION_INTERVAL) {
-      Log.warning(printName() + ": Low battery. Last notification was " + String(diff) + " ms ago.");
-      _lastBatteryNotification = now;
+  processBaseline(packet);
+  if (_state == STATE_ACTIVE) {
+    if (!packet.batteryState) {
+      unsigned long now = millis();
+      unsigned long diff = now - _lastBatteryNotification;
+      if (diff > BATTERY_NOTIFICATION_INTERVAL) {
+        Log.warning(printName() + ": Low battery. Last notification was " + String(diff) + " ms ago.");
+        _lastBatteryNotification = now;
+      }
     }
+    _hasNewPacket = true;
+    Log.debug(printName() + ":" +
+      + "Ch:" + String(packet.channelNo) 
+      + ", Bat:" + (getLastBatteryState() ? "OK" : "LO") 
+      + ", T:" + formatTemperature(getLastTemp()) + "°C"
+      + ( hasHumidity() ? ", Rh:" + formatHumidity(getLastHumidity()) + "%" : "" )
+    );
   }
-  _hasNewPacket = true;
-  Log.debug(printName() + ":" +
-    + "Ch:" + String(packet.channelNo) 
-    + ", Bat:" + (getLastBatteryState() ? "OK" : "LO") 
-    + ", T:" + getLastTemp() + "°C"
-    + ( _hasHumidity ? ", Rh:" + getLastHumidity() + "%" : "" )
-  );
   return true;
 }
 
@@ -270,14 +179,4 @@ bool THSensor::hasUpdates() {
   return _prevUpdateTime == 0 
     || (_last.temperature != _prevUpdateTemp) 
     || (millis() - _prevUpdateTime) > UPDATE_TIMEOUT;
-}
-
-/**
- * Returns the last received Measurement.
- */
-THPacket THSensor::getLastRecieved() {
-  _prevUpdateTemp = _last.temperature;
-  _prevUpdateTime = _last.timestamp;
-  _hasNewPacket = false;
-  return _last;
 }

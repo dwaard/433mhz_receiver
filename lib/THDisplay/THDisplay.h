@@ -3,6 +3,7 @@
   #define _THDisplay_h
   #include <Wire.h>
   #include <Adafruit_SSD1306.h>
+  #include "THSensor.h"
 
   #define SCREEN_WIDTH    128 // OLED display width, in pixels
   #define SCREEN_HEIGHT    64 // OLED display height, in pixels
@@ -56,7 +57,7 @@
         render();
       }
 
-      void updateDeviceInfo(unsigned int index, String status);
+      void updateDeviceInfo(THSensor *device);
 
       void updateIPAdress(String ipAdress);
 
