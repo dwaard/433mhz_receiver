@@ -1,4 +1,4 @@
-#include "THDevice.h"
+#include "THSensor.h"
 
 String formatString(const char *format, ...) {
     char buffer[128]; // Adjust size as needed
@@ -17,13 +17,13 @@ String formatHumidity(float humidity) {
     return formatString("%3.0f", humidity);
 }
 
-THDevice::THDevice(DeviceConfig config) {
+THSensor::THSensor(THSensorConfig config) {
   setConfig(config);
   _hasNewPacket = false;
   _last.timestamp = 0; // Considered as an empty THPacket
 }
 
-void THDevice::setConfig(DeviceConfig config) {
+void THSensor::setConfig(THSensorConfig config) {
   _deviceID = config.deviceID;
   displayID = config.displayID;
   _channelNo = (config.settings >> 1) & 0b11;
@@ -37,7 +37,7 @@ void THDevice::setConfig(DeviceConfig config) {
 /**
  * Overloads the `==` operator. Checks if a this deviceID equals the given devices'.
  */
-bool THDevice::operator == (const THDevice &other) {
+bool THSensor::operator == (const THSensor &other) {
   return _deviceID == other._deviceID;
 }
 
@@ -46,7 +46,7 @@ bool THDevice::operator == (const THDevice &other) {
  * 
  * @param id the deviceID to check
  */
-bool THDevice::hasID(uint8_t id) {
+bool THSensor::hasID(uint8_t id) {
   return _deviceID == id;
 }
 
@@ -55,7 +55,7 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::printName() {
+ String THSensor::printName() {
   return String(String(_name) 
     + " (0x" + (_deviceID < 0x10 ? "0" : "") 
     + String(_deviceID, HEX) + ")");
@@ -66,7 +66,7 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::getLastStatus() {
+ String THSensor::getLastStatus() {
   String name = formatString("%4s", _name);
   String batt = " ";
   if (_validTempsCount >= BASELINE_SIZE && !_last.batteryState) {
@@ -88,7 +88,7 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- unsigned long THDevice::getLastAge() {
+ unsigned long THSensor::getLastAge() {
   if (_validTempsCount >= BASELINE_SIZE) {
     return (millis() - _last.timestamp) / 1000;
   }
@@ -100,7 +100,7 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::getLastBatteryState() {
+ String THSensor::getLastBatteryState() {
   if (_validTempsCount >= BASELINE_SIZE) {
     return _last.batteryState ? "OK" : "LO";
   }
@@ -112,7 +112,7 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::getLastTemp() {
+ String THSensor::getLastTemp() {
   if (_validTempsCount >= BASELINE_SIZE) {
     return formatTemperature(_last.temperature);
   }
@@ -128,7 +128,7 @@ bool THDevice::hasID(uint8_t id) {
  * 
  * @param buf the buffer to print to 
  */
- String THDevice::getLastHumidity() {
+ String THSensor::getLastHumidity() {
   String value = String("  ___");
   if (_validTempsCount >= BASELINE_SIZE) {
     value = formatHumidity(_last.humidity);
@@ -144,7 +144,7 @@ bool THDevice::hasID(uint8_t id) {
  * Check if the device is timed out, which means that too much time has elapsed
  * since this device has recieved a valid packet.
  */
-void THDevice::checkTimeout() {
+void THSensor::checkTimeout() {
   unsigned long now = millis();
   if (_lastReceived != 0) {
     unsigned int tdiff = now - _lastReceived; // Rollover safe  time diff
@@ -167,7 +167,7 @@ void THDevice::checkTimeout() {
  * @param packet the packet to validate
  * @return `true` if the packet is valid
  */
-bool THDevice::isValid(THPacket packet) {
+bool THSensor::isValid(THPacket packet) {
   if (packet.deviceID != _deviceID) {
     Log.error(printName() + ": invalid deviceID. Exp:0x" + String(_deviceID, HEX) + ", got: 0x" + String(packet.deviceID, HEX));
     return false;
@@ -235,7 +235,7 @@ bool THDevice::isValid(THPacket packet) {
  * 
  * @param measurement the measurement to process
  */
-bool THDevice::process(THPacket packet) {
+bool THSensor::process(THPacket packet) {
   if (!isValid(packet)) {
     return false;
   }
@@ -263,7 +263,7 @@ bool THDevice::process(THPacket packet) {
  * Returns `true` if this device has something to update to ThingSpeak.
  * Otherwise `false`.
  */
-bool THDevice::hasUpdates() {
+bool THSensor::hasUpdates() {
   if (!_hasNewPacket) {
     return false;
   }
@@ -275,7 +275,7 @@ bool THDevice::hasUpdates() {
 /**
  * Returns the last received Measurement.
  */
-THPacket THDevice::getLastRecieved() {
+THPacket THSensor::getLastRecieved() {
   _prevUpdateTemp = _last.temperature;
   _prevUpdateTime = _last.timestamp;
   _hasNewPacket = false;

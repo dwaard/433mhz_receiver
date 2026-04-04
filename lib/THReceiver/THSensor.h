@@ -1,6 +1,6 @@
 // Include guard. Prevents program errors if the library is accidentally included more than once in the sketch
-#ifndef _THDReciever_h 
-  #define _THDReciever_h
+#ifndef _THSensor_h 
+  #define _THSensor_h
   #include "THReciever.h"
   #pragma once
   #include <Arduino.h>  
@@ -48,7 +48,7 @@
    * working or is out of range. The max valid interval is stored in minutes and 
    * can be set to a value between 0 and 255.
    */
-  struct DeviceConfig {
+  struct THSensorConfig {
     /**
      * Unique identifier for each device. 
      */
@@ -91,16 +91,16 @@
    * measurement and some metadata about the device. It also has some basic 
    * validation and status update features.
    */
-  class THDevice {
+  class THSensor {
     public:
       static const bool DISABLE_HUMIDITY = false;
       static const bool MAX_NAME_LENGTH = 5;
 
-      THDevice(DeviceConfig config);
+      THSensor(THSensorConfig config);
 
-      void setConfig(DeviceConfig config);
+      void setConfig(THSensorConfig config);
 
-      bool operator == (const THDevice &other);
+      bool operator == (const THSensor &other);
 
       bool hasID(uint8_t id);
       String printName();

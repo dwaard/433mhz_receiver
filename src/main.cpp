@@ -16,7 +16,7 @@ an 128x64 pixel I2C OLED display and BMP280
 #include "channels/SerialChannel.h"
 #include "channels/TelnetChannel.h"
 
-#include "THDevice.h"
+#include "THSensor.h"
 
 #define TELNET_DEBUGGING_ENABLED
 
@@ -32,9 +32,9 @@ struct Config {
   uint8_t logLevel = 2; // 0 = NONE, 5 = TRACE, ... 50 = CRITICAL
 } config;
 
-DeviceConfig sensorConfigs[SENSOR_COUNT];
+THSensorConfig sensorConfigs[SENSOR_COUNT];
 
-THDevice **devices = new THDevice*[SENSOR_COUNT];
+THSensor **sensors = new THSensor*[SENSOR_COUNT];
 
 /******************************************************************************
  *                                                                            *
@@ -97,14 +97,14 @@ void loadConfig(int version) {
   }
 }
 
-DeviceConfig loadSensorConfig(int index) {
+THSensorConfig loadSensorConfig(int index) {
   if (index < 0 || index >= SENSOR_COUNT) {
     Log.error("Invalid sensor index: " + String(index));
-    return DeviceConfig(); // Return default config for invalid index
+    return THSensorConfig(); // Return default config for invalid index
   }
-  DeviceConfig config;
+  THSensorConfig config;
   EEPROM.begin(CONFIG_EEPROM_SIZE);
-  EEPROM.get(CONFIG_SENSORS_ADDRESS + index * sizeof(DeviceConfig), config);
+  EEPROM.get(CONFIG_SENSORS_ADDRESS + index * sizeof(THSensorConfig), config);
   return config;
 } 
 
@@ -194,7 +194,7 @@ THReceiver receiver = THReceiver();
  */
 int findDevice(uint8_t deviceID) {
   for (int n = 0; n < SENSOR_COUNT; n++) {
-    THDevice *d = devices[n];
+    THSensor *d = sensors[n];
     if (d->hasID(deviceID))
       return n;
   }
@@ -212,7 +212,7 @@ void processPacket(THPacket packet) {
     Log.trace(sentence);
     int i = findDevice(packet.deviceID);
     if (i >= 0) {
-      THDevice *d = devices[i];
+      THSensor *d = sensors[i];
       d->process(packet);
       Display.updateDeviceInfo(d->displayID, d->getLastStatus());
     } else {
@@ -246,7 +246,7 @@ void updateThingSpeak() {
   Display.updateThingSpeakStatus(0);
   bool hasUpdates = false;
   for (int n = 0; n < SENSOR_COUNT; n++) {
-    THDevice *d = devices[n];
+    THSensor *d = sensors[n];
     if (d->hasUpdates()) {
       THPacket m = d->getLastRecieved();
       ThingSpeak.setField(n + 1, m.temperature);
@@ -295,19 +295,19 @@ ESP8266WebServer server(80);
 void handleRoot() {
   Log.debug("Received GET / request");
   JsonDocument json;
-  JsonArray sensors = json.to<JsonArray>();
+  JsonArray sensorsJson = json.to<JsonArray>();
   for (int i = 0; i < SENSOR_COUNT; i++) {
-    JsonObject sensor = sensors.add<JsonObject>();
+    JsonObject sensor = sensorsJson.add<JsonObject>();
     sensor["id"] = i;
     sensor["displayID"] = sensorConfigs[i].displayID;
     sensor["deviceID"] = sensorConfigs[i].deviceID;
-    sensor["name"] = devices[i]->getName();
-    sensor["temperature"] = devices[i]->getLastTemp();
-    if (devices[i]->hasHumidity()) {
-      sensor["humidity"] = devices[i]->getLastHumidity();
+    sensor["name"] = sensors[i]->getName();
+    sensor["temperature"] = sensors[i]->getLastTemp();
+    if (sensors[i]->hasHumidity()) {
+      sensor["humidity"] = sensors[i]->getLastHumidity();
     }
-    sensor["batteryState"] = devices[i]->getLastBatteryState();
-    sensor["age"] = devices[i]->getLastAge();
+    sensor["batteryState"] = sensors[i]->getLastBatteryState();
+    sensor["age"] = sensors[i]->getLastAge();
   }
   String response;
   serializeJson(json, response);
@@ -470,7 +470,7 @@ void handlePatchConfigSensors() {
   }
 
   saveConfig(); // Sla bijgewerkte configuratie op
-  devices[id]->setConfig(sensorConfigs[id]); // Update the corresponding THDevice instance with the new config
+  sensors[id]->setConfig(sensorConfigs[id]); // Update the corresponding THDevice instance with the new config
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
@@ -636,8 +636,8 @@ void setup() {
   Log.info("Initializing devices");
   for (int i=0; i<SENSOR_COUNT; i++) {
     Log.trace("Initializing device " + String(i) + " " + String(sensorConfigs[i].name));
-    devices[i] = new THDevice(sensorConfigs[i]);
-    Display.updateDeviceInfo(devices[i]->displayID, devices[i]->getLastStatus());
+    sensors[i] = new THSensor(sensorConfigs[i]);
+    Display.updateDeviceInfo(sensors[i]->displayID, sensors[i]->getLastStatus());
   }
 
   Log.info("Starting 433 MHz receiver on interrupt pin " + String(THRECEIVER_PIN));
@@ -686,7 +686,7 @@ void loop() {
   Display.updateWifiStatus(WiFi.status() == WL_CONNECTED, WiFi.RSSI());
   // Timeout watchdog
   for (int n = 0; n < SENSOR_COUNT; n++) {
-    THDevice *d = devices[n];
+    THSensor *d = sensors[n];
     d->checkTimeout();
   }
   // Periodically update ThingSpeak with the latest measurements and status updates
