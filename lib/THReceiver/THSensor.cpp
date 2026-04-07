@@ -108,15 +108,16 @@ bool THSensor::isValid(THPacket packet) {
 
 bool THSensor::processBaseline(THPacket packet) {
   float tempWithCorrection = packet.temperature + getCorrection();
-  if (_validTempsCount == 0) {
-    Log.debug(printName() + ": No baseline yet. Accepting first temp: " + formatTemperature(tempWithCorrection) + "°C");
-    _state = STATE_BASELINE;
-    return true;
-  } 
-  if (_validTempsCount < BASELINE_SIZE) {
-    Log.debug(printName() + ": Baseline not filled yet. Accepting temp #" + String(_validTempsCount + 1) + ": " + formatTemperature(tempWithCorrection) + "°C");
+  // First, if we are not active yet, we will fill the baseline with the latest temps.
+  if (_state != STATE_ACTIVE) {
+    if (_validTempsCount == 0) {
+      Log.debug(printName() + ": No baseline yet. Accepting first temp: " + formatTemperature(tempWithCorrection) + "°C");
+      _state = STATE_BASELINE;
+    } else if (_validTempsCount < BASELINE_SIZE) {
+      Log.debug(printName() + ": Baseline not filled yet. Accepting temp #" + String(_validTempsCount + 1) + ": " + formatTemperature(tempWithCorrection) + "°C");
+    }
   }
-  // Finally, increase the latest index before a new temp is added.
+  // Then, increase the latest index before a new temp is added.
   _latestTempBaselineIndex = (_latestTempBaselineIndex + 1) % BASELINE_SIZE ;
   // Add it to the baseline.
   _baselineTemps[_latestTempBaselineIndex] = tempWithCorrection;
