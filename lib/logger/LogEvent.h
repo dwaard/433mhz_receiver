@@ -2,7 +2,7 @@
 #ifndef LOGEVENT_H
 #define LOGEVENT_H
 
-#include <Arduino.h>
+#include <stdint.h>
 
 /**
  * @struct LogEvent
@@ -32,6 +32,6 @@ struct LogEvent
      * to handle this. The default LogChannel implementations will expect this 
      * to be a pointer to a char array containing the log message.
      */
-    void *data;
+    void* data;
 };
 #endif

@@ -1,6 +1,7 @@
 #ifndef LOGCHANNEL_H
 #define LOGCHANNEL_H
 
+#include <Arduino.h>
 #include "LogEvent.h"
 
 /**
@@ -67,7 +68,7 @@ protected:
      */
     String formatEventDefault(const LogEvent& event) {
         String result = "[" + String(getLevelStr(event)) + "|" + String(event.timestamp);
-        if (event.code != 100) {
+        if (event.code != 0) {
             result += "|" + String(event.code);
         }
         result += "] " + getDataStr(event);

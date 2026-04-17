@@ -1,8 +1,6 @@
 #ifndef TIMESTAMPPROVIDER_H
 #define TIMESTAMPPROVIDER_H
 
-#include <Arduino.h>
-
 /**
  * @class TimestampProvider
  * @brief Abstract base class for providing timestamps to log events

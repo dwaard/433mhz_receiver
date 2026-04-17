@@ -6,6 +6,7 @@
 #include <vector>
 #include "LogEvent.h"
 #include "LogChannel.h"
+#include "LogTypes.h"
 #include "TimestampProvider.h"
 #include "TimestampProviders/MillisTimestampProvider.h"
 
@@ -16,21 +17,21 @@
  */
 class Logger {
 public:
-    // declare a constant NONE log level for disabling logging
-    static const uint8_t NONE = 0; ///< No logging
-    static const uint8_t TRACE = 5; ///< Very detailed tracing information (not commonly used)
-    static const uint8_t DEBUG = 10; ///< Detailed debugging information
-    static const uint8_t INFO = 20; ///< General informational messages
-    static const uint8_t WARNING = 30; ///< Warning messages for potentially problematic situations
-    static const uint8_t ERROR = 40; ///< Error messages for recoverable failures
-    static const uint8_t CRITICAL = 50; ///< Critical messages for severe failures
+    // Backward-compatible aliases for existing code.
+    static const uint8_t NONE = LoggerTypes::NONE;
+    static const uint8_t TRACE = LoggerTypes::TRACE;
+    static const uint8_t DEBUG = LoggerTypes::DEBUG;
+    static const uint8_t INFO = LoggerTypes::INFO;
+    static const uint8_t WARNING = LoggerTypes::WARNING;
+    static const uint8_t ERROR = LoggerTypes::ERROR;
+    static const uint8_t CRITICAL = LoggerTypes::CRITICAL;
 
-    static const uint16_t CODE_CHAR_ARRAY = 0;
-    static const uint16_t CODE_STRING = 1;
-    static const uint16_t CODE_INT = 2;
-    static const uint16_t CODE_FLOAT = 3;
-    static const uint16_t CODE_DOUBLE = 4;
-    static const uint16_t CODE_BOOL = 5;
+    static const uint16_t CODE_CHAR_ARRAY = LoggerTypes::CODE_CHAR_ARRAY;
+    static const uint16_t CODE_STRING = LoggerTypes::CODE_STRING;
+    static const uint16_t CODE_INT = LoggerTypes::CODE_INT;
+    static const uint16_t CODE_FLOAT = LoggerTypes::CODE_FLOAT;
+    static const uint16_t CODE_DOUBLE = LoggerTypes::CODE_DOUBLE;
+    static const uint16_t CODE_BOOL = LoggerTypes::CODE_BOOL;
 
     /**
      * @brief Constructor initializing the logger with default MillisTimestampProvider
@@ -41,7 +42,7 @@ public:
      * @brief Destructor that cleans up all allocated LogChannel objects
      */
     ~Logger() {
-        for (auto channel : channels) {
+        for (auto channel : ownedChannels) {
             delete channel;
         }
     }
@@ -63,6 +64,15 @@ public:
     }
 
     /**
+     * @brief Registers and transfers ownership of a log channel to logger
+     * @param channel Pointer to a LogChannel implementation to add
+     */
+    void addOwnedChannel(LogChannel* channel) {
+        channels.push_back(channel);
+        ownedChannels.push_back(channel);
+    }
+
+    /**
      * @brief Dispatches a log event to all registered channels
      * @param event The LogEvent to be processed by each channel
      */
@@ -81,7 +91,7 @@ public:
      * @param data The trace message content
      * @param code Optional code for categorizing the log event (default: 0)
      */
-    void trace(void* data, u_int16_t code = 0) {
+    void trace(void* data, uint16_t code = 0) {
         log({timestampProvider->getTimestamp(), Logger::TRACE, code, data});
     }
 
@@ -98,7 +108,7 @@ public:
      * @param data The debug message content
      * @param code Optional code for categorizing the log event (default: 0)
      */
-    void debug(void* data, u_int16_t code = 0) {
+    void debug(void* data, uint16_t code = 0) {
         log({timestampProvider->getTimestamp(), Logger::DEBUG, code, data});
     }
 
@@ -115,7 +125,7 @@ public:
      * @param data The informational message content
      * @param code Optional code for categorizing the log event (default: 0)
      */
-    void info(void* data, u_int16_t code = 0) {
+    void info(void* data, uint16_t code = 0) {
         log({timestampProvider->getTimestamp(), Logger::INFO, code, data});
     }
 
@@ -132,7 +142,7 @@ public:
      * @param data The warning message content
      * @param code Optional code for categorizing the log event (default: 0)
      */
-    void warning(void* data, u_int16_t code = 0) {
+    void warning(void* data, uint16_t code = 0) {
         log({timestampProvider->getTimestamp(), Logger::WARNING, code, data});
     }
 
@@ -149,7 +159,7 @@ public:
      * @param data The error message content
      * @param code Optional code for categorizing the log event (default: 0)
      */
-    void error(void* data, u_int16_t code = 0) {
+    void error(void* data, uint16_t code = 0) {
         log({timestampProvider->getTimestamp(), Logger::ERROR, code, data});
     }
 
@@ -166,7 +176,7 @@ public:
      * @param data The critical message content
      * @param code Optional code for categorizing the log event (default: 0)
      */
-    void critical(void* data, u_int16_t code = 0) {
+    void critical(void* data, uint16_t code = 0) {
         log({timestampProvider->getTimestamp(), Logger::CRITICAL, code, data});
     }
 
@@ -180,6 +190,7 @@ public:
 
 private:
     std::vector<LogChannel*> channels;              ///< Collection of registered log channels
+    std::vector<LogChannel*> ownedChannels;         ///< Channels owned and released by logger
     TimestampProvider* timestampProvider;           ///< Current timestamp provider implementation
     MillisTimestampProvider defaultMillisProvider;  ///< Default millisecond-based timestamp provider
 };

@@ -1,0 +1,12 @@
+{
+  "name": "EmbeddedLogger",
+  "version": "1.0.0",
+  "description": "Reusable channel-based logger for Arduino and PlatformIO projects",
+  "keywords": ["logger", "logging", "arduino", "embedded"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif8266", "espressif32", "atmelavr"],
+  "headers": ["Logger.h", "LogChannel.h", "LogEvent.h", "LogTypes.h", "TimestampProvider.h"],
+  "build": {
+    "srcDir": "."
+  }
+}
