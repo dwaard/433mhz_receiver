@@ -7,84 +7,7 @@
   #include <stdio.h>
   #include <cstdlib>
   #include "Logger.h"
-
-  /**
-   * Struct representing the configuration of a device. This is used to easily 
-   * load and save device configurations to and from EEPROM. It has the following 
-   * attributes:
-   * 
-   * The `deviceID` is a unique identifier for each device. It is used to match 
-   * incoming measurements to the correct device. Normally a number between 0 and 
-   * 0xFF. This is selected at random each time a sensor is turned on.
-   * 
-   * A short name for this device. This is used for status updates and logging. 
-   * It should be no longer than 4 characters to save space in the EEPROM.
-   * 
-   * The `settings` byte is used to store multiple boolean and small integer values 
-   * in a compact way. Bit 0 (the least significant bit) is used to indicate whether 
-   * the device has humidity measurements (1) or not (0). Bits 1 and 2 are used 
-   * to store the channel number (1, 2, or 4). The remaining bits (3-7) are reserved 
-   * for future use. This allows us to store both the humidity setting and the 
-   * channel number in a single byte, saving space in the EEPROM.  
-   * 
-   * The `correction` value is a simple calibration feature. The correction value 
-   * is added to the received temperature to correct for any systematic errors 
-   * in the sensor. This can be used to calibrate the sensor against a known accurate 
-   * thermometer. The correction value can be positive or negative and is stored 
-   * in steps of 0.1°C.
-   * 
-   * The `maxValidDelta` is used in the baseline temperature validator. When a 
-   * new temperature measurement is received, it is compared to the previous valid 
-   * temperature. If the absolute difference between the two temperatures exceeds 
-   * the max valid delta, the new measurement is considered invalid and is not 
-   * added to the baseline. This helps to filter out outliers and sudden changes 
-   * in temperature that are unlikely to be real. The max valid delta is stored 
-   * in steps of 0.1°C and can be set to a value between 0 and 255 (which 
-   * corresponds to a maximum valid temperature difference of 25.5°C).
-   * 
-   * The `maxValidInterval` is used to determine if a device has timed out. If the 
-   * time since the last valid measurement exceeds this interval, the device is 
-   * considered timed out. This is useful to detect when a sensor has stopped 
-   * working or is out of range. The max valid interval is stored in minutes and 
-   * can be set to a value between 0 and 255.
-   */
-  struct THSensorConfig {
-    /**
-     * Unique identifier for each device. 
-     */
-    uint8_t deviceID;
-
-    /**
-     * Location on the display. 
-     */
-    uint8_t displayID;
-
-    /**
-     * A short name for this device.
-     */
-    char name[5];
-
-    /**
-     * The settings byte
-     */
-    uint8_t settings; // 0=hasHumidity 1-2=channel 3=7=reserved
-
-    /**
-     * A simple calibration feature. 
-     */
-    int8_t correction;
-
-    /**
-     * The max valid delta is used in the baseline temperature validator. 
-     */
-    uint8_t maxValidDelta; // Max valid temp difference * 10C (default: 7)
-    
-    /**
-     * The max valid interval is used to determine if a device has timed out. 
-     */
-    uint8_t maxValidInterval; // Max valid time interval in minutes (default: 15)
-
-  };
+  #include "THSensorConfig.h"
 
   /**
    * Class representing a temperature and humidity sensor. It stores the latest 
@@ -106,24 +29,11 @@
         this->config = config;
         _hasNewPacket = false;
         _last.timestamp = 0; // Considered as an empty THPacket
-      }
-
-      /**
-       * Overloads the `==` operator. Checks if a this deviceID equals the given devices'.
-       */
-      bool operator == (THSensor &other) {
-        return getDeviceID() == other.getDeviceID();
+        _state = STATE_IDLE;
       }
 
       // Getters for the device configuration.
-      uint8_t getDeviceID() { return config->deviceID; }
-      uint8_t getDisplayID() { return config->displayID; }
-      String getName() { return String(config->name); }
-      uint8_t getChannelNo() { return (config->settings >> 1) & 0b11; }
-      bool hasHumidity() { return (config->settings & 0b1) == 1; }
-      float getCorrection() { return config->correction / 10.0; }
-      float getMaxValidDelta() { return config->maxValidDelta / 10.0; }
-      unsigned long getMaxValidInterval() { return config->maxValidInterval * 60 * 1000; }
+      THSensorConfig getConfig() { return *config; }
       uint8_t getState() { return _state; }
 
       // Methods for the main processing logic of this device.
@@ -143,11 +53,11 @@
         if (_state != STATE_ACTIVE) {
           return NAN;
         }
-        return _last.temperature + getCorrection();
+        return _last.temperature;
       }
 
       float getLastHumidity() {
-        if (_state != STATE_ACTIVE || !hasHumidity()) {
+        if (_state != STATE_ACTIVE || !config->hasHumidity()) {
           return NAN;
         }
         return _last.humidity;
@@ -164,7 +74,7 @@
         if (_state != STATE_ACTIVE) {
           return -1;
         }
-        return (millis() - _last.timestamp) / 1000;
+        return (millis() - _last.timestamp);
       }
 
       unsigned int getBaselineSize() {
@@ -172,12 +82,22 @@
       }
 
       /**
-       * Returns `true` if this device has the specified ID. Otherwise it returns `false`
+       * Compares this device with another device based on their IDs and channels.
        * 
-       * @param id the deviceID to check
+       * @param deviceID the deviceID to compare
+       * @param channelNo the channel number to compare
+       * @return -1 if this deviceID is not equal to the specified ID
+       *          0 if they are equal but channels differ
+       *          1 if this deviceID and channel number are both equal to the specified values
        */
-      bool hasID(uint8_t id) {
-        return getDeviceID() == id;
+      int compareTo(uint8_t deviceID, uint8_t channelNo) {
+        if (config->deviceID != deviceID) {
+          return -1;
+        }
+        if (config->getChannel() != channelNo) {
+          return 0;
+        }
+        return 1;
       }
 
       String printName();
@@ -196,7 +116,7 @@
       uint8_t _prevUpdateHum = -1;
       uint8_t _prevUpdateChannel = -1;
       bool _hasNewPacket;
-      unsigned long _lastBatteryNotification = 0;
+      unsigned long _nextBatteryNotification = 0;
 
       const unsigned long BATTERY_NOTIFICATION_INTERVAL = 60 * 60 * 1000;
       const unsigned int UPDATE_TIMEOUT = 5 * 60 * 1000;

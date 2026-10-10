@@ -2,6 +2,9 @@
  * net.h - A header file to include the appropriate WiFi library based on the platform.
  * It also defines a helper function to convert WiFi status codes to human-readable strings.
  */
+#ifndef NET_H
+#define NET_H
+
 #include "Logger.h"
 
 #if defined(ARDUINO_ARCH_ESP8266)
@@ -71,3 +74,5 @@ void connectWifi(const char *ssid, const char *passphrase) {
   }
   Log.info("WiFi connection successful. IP address: " + WiFi.localIP().toString());
 }
+
+#endif // NET_H
